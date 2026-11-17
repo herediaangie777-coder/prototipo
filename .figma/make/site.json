@@ -1,0 +1,10 @@
+{
+  "description": "Streamline the management of fresh and frozen strawberry sales with a user-friendly dashboard, inventory tracking, and sales reporting for businesses.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
