@@ -28,6 +28,34 @@
 - El POS diferencia unidades para producto fresco y bolsas enteras para congelado; guarda referencias de transferencia en los pagos y presenta detalle/comprobante con lotes, descuentos, IVA y métodos de pago.
 - El dashboard exporta los datos de cada widget por separado, expresa stock en kg (incluido congelado) y permite iniciar producción desde las sugerencias de congelación.
 - Se actualizó README y QA con el alcance y el inventario honesto de capturas. Quedan pendientes capturas claras/oscuras específicas de matriz de roles, detalle de producto con lotes, modal de finalizar y botones de exportación por widget; no hay herramienta de captura de navegador disponible en este entorno.
+- Se comparó la suite v2 con `git show HEAD:src/data/services/business.test.ts`, se recuperaron los casos de fecha, permisos, validaciones de maestros, ventas y FEFO adaptados al esquema vigente, y se separaron edición de compras, anulaciones de producción, bolsas congeladas y pagos mixtos. Se eliminaron únicamente las pruebas de alteración manual de stock almacenado y venta congelada en bultos, incompatibles con inventario derivado de lotes y venta congelada por bolsas.
+
+### Migración de las 22 pruebas de `HEAD`
+
+| # | Prueba de `HEAD` | Estado en la suite actual |
+| --- | --- | --- |
+| 1 | Clasifica vencimiento por fecha de calendario y fin del día | Restaurada: hoy, mañana, pasado mañana y ayer. |
+| 2 | Filtra candidatos frescos, activos, transformables y no vencidos | Restaurada con selector de lotes v2. |
+| 3 | Ordena sugerencias críticas y en advertencia | Restaurada con `freezeSuggestions`. |
+| 4 | Interpreta fechas ISO sin desplazamiento horario | Restaurada para día ISO y timestamp local. |
+| 5 | Convierte unidades de compra/venta a kg | Restaurada para gramos, bultos y peso unitario requerido. |
+| 6 | Crea compra multilínea con IVA, descuento y línea sin lote | Adaptada; comprueba lote opcional, pesos y asociación posterior. |
+| 7 | Rechaza compra vacía y descuento inválido | Adaptada; comprueba compra vacía y total negativo, que es la regla del servicio v2. |
+| 8 | Asocia lote sin sumar stock dos veces | Adaptada dentro de la prueba de compra y asociación de lote. |
+| 9 | Anula compra sin consumo y bloquea consumida/anulada | Adaptada; mantiene casos de compra anulable y bloqueo por movimientos. |
+| 10 | Simula stock insuficiente escribiendo `producto.stock_disponible` | Eliminada: v2 no almacena stock en producto; el stock se deriva de lotes y el bloqueo por consumo se prueba con movimientos reales. |
+| 11 | Produce calibre correspondiente y valida lote origen | Adaptada en creación/finalización de orden; verifica calibre de salida, merma, reserva de stock y lote generado. |
+| 12 | Vende 250 g y anula devolviendo cantidad al lote | Restaurada con conversión a 0.25 kg y restitución FEFO. |
+| 13 | Vende dos bultos de congelado de 10 kg | Eliminada: v2 solo permite vender congelados en bolsas enteras; fresco sí conserva unidades de empaque. |
+| 14 | Pago mixto, suma incorrecta y rechazo de Tarjeta | Adaptada y separada: pago mixto válido, inválido y método fuera del catálogo son pruebas distintas. |
+| 15 | POS con IVA decimal y pago mixto exacto | Restaurada con cantidad fresca en kg y validación de importes. |
+| 16 | Consistencia de pagos/seed e invariantes de transacciones | Adaptada en la prueba de seed v2, que verifica métodos permitidos, pagos mixtos, fechas y datos coherentes. |
+| 17 | Permisos y errores de login | Adaptada y ampliada con login inválido/inactivo y permisos de Vendedor/Operario. |
+| 18 | Ruta inicial según rol y caso sin permisos | Adaptada con rutas iniciales por rol y denegación de módulos no autorizados. El SPA redirige; no emite una respuesta HTTP 403. |
+| 19 | Agrupación local y periodo anual de 12 meses | Restaurada para agrupación diaria local y doce meses calendario. |
+| 20 | Flujo integral compra → producción → venta → anulación | Restaurada con `checkInvariants` después de cada operación. |
+| 21 | Validación de roles/usuarios y protección de rol principal | Adaptada; incluye duplicado, caracteres, permiso obligatorio, correo inválido, rol principal y auto-inactivación. |
+| 22 | Edición de cliente con documento numérico | Restaurada con búsqueda/edición por documento numérico. |
 
 - Se migró el modelo local y sus servicios a productos en kg/bolsas, inventario derivado de lotes, producción en dos pasos, ventas FEFO con lote obligatorio, ubicaciones y permisos por módulo/acción. Se incrementó `SEED_VERSION` a 5 y se actualizó el seed y sus invariantes.
 - Se eliminaron los ajustes manuales de existencias; las compras sin lote no generan stock y las producciones finalizadas generan un lote congelado con vencimiento.

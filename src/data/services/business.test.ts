@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoSeed } from '../seed'
 import { checkInvariants } from '../invariants'
-import { localDateString } from '../dates'
-import { hasPermission, sellableStock, stockVendible, stockVencido, stockEnKg } from '../selectors'
-import { login } from './auth'
-import { saveMaster } from './masters'
+import { expiryStatus, localDateFromTimestamp, localDateString } from '../dates'
+import { dashboardStats, freezeCandidates, freezeSuggestions, hasPermission, periodRows, sellableStock, stockByLot, stockVendible, stockVencido, stockEnKg } from '../selectors'
+import { getHomePath } from '../navigation'
+import { INACTIVE_ACCOUNT, INVALID_CREDENTIALS, login } from './auth'
+import { saveMaster, toggleMasterState } from './masters'
+import { toKg } from '../units'
 import {
   associateLot, cancelProduction, cancelPurchase, cancelSale, createProductionOrder, createPurchase,
   createSale, editPurchase, finishProduction, updateProductionOrder,
@@ -40,6 +42,9 @@ describe('modelo de datos v2', () => {
     expect(state.ventas.length).toBeGreaterThanOrEqual(30)
     expect(state.ventas.filter(row => !row.estado && Boolean(row.motivo_anulacion)).length).toBe(2)
     expect(state.detalle_venta.every(row => Number.isInteger(row.id_lote))).toBe(true)
+    expect(state.pagos_venta.every(row => row.metodo_pago === 'Efectivo' || row.metodo_pago === 'Transferencia')).toBe(true)
+    expect(state.pagos_venta.some(row => state.pagos_venta.filter(payment => payment.id_venta === row.id_venta).length === 2)).toBe(true)
+    expect(state.ventas.some(row => row.estado && row.iva > 0 && row.descuento_total > 0)).toBe(true)
     const today = localDateString()
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - 14)
@@ -146,7 +151,11 @@ describe('modelo de datos v2', () => {
     checkInvariants(state)
     state = finishProduction(state, orderId, { unidades_obtenidas: 2, id_ubicacion: 315, fecha_vencimiento: futureDate(180) })
     expect(state.produccion.find(row => row.id_produccion === orderId)).toMatchObject({ estado: 'Finalizada', merma: 1 })
-    expect(state.lotes.find(row => row.id_detalle_produccion === state.detalle_produccion.find(row => row.id_produccion === orderId)?.id_detalle_produccion))
+    const sourceDetail = state.detalle_compra.find(row => row.id_detalle_compra === source.id_detalle_compra)!
+    const outputDetail = state.detalle_produccion.find(row => row.id_produccion === orderId)!
+    expect(state.productos.find(row => row.id_producto === outputDetail.id_producto)?.id_categoria)
+      .toBe(state.productos.find(row => row.id_producto === sourceDetail.id_producto)?.id_categoria)
+    expect(state.lotes.find(row => row.id_detalle_produccion === outputDetail.id_detalle_produccion))
       .toMatchObject({ cantidad_disponible: 2, id_ubicacion: 315 })
     checkInvariants(state)
     state = cancelProduction(state, orderId)
@@ -302,6 +311,21 @@ describe('modelo de datos v2', () => {
     checkInvariants(sale)
   })
 
+  it('registra IVA decimal en pago mixto cuando los pagos suman el total', () => {
+    const state = createDemoSeed()
+    const fresh = state.productos.find(row => row.tipo_producto === 'Fresca')!
+    const subtotal = fresh.precio_venta_detal * 0.01
+    const iva = Number((subtotal * 0.19).toFixed(2))
+    const total = Number((subtotal + iva).toFixed(2))
+    const sale = createSale(state, {
+      numero_documento: '222222222222', id_usuario: 2, tipo_venta: 'Detal', iva, descuento_total: 0,
+      pagos: [{ metodo_pago: 'Efectivo', monto: total / 2 }, { metodo_pago: 'Transferencia', monto: total / 2 }],
+      lines: [{ id_producto: fresh.id_producto, cantidad: 0.01 }],
+    })
+    expect(sale.ventas.at(-1)).toMatchObject({ iva, total_pagar: total, estado: true })
+    checkInvariants(sale)
+  })
+
   it('rechaza pago mixto cuya suma no coincide con el total', () => {
     const state = createDemoSeed()
     const frozen = state.productos.find(row => row.tipo_producto === 'Congelada')!
@@ -311,6 +335,219 @@ describe('modelo de datos v2', () => {
       lines: [{ id_producto: frozen.id_producto, cantidad: 1 }],
     })).toThrow('El pago en efectivo y transferencia debe sumar exactamente el total.')
     checkInvariants(state)
+  })
+
+  it('selecciona solo lotes frescos transformables para sugerir congelación', () => {
+    const now = new Date(2026, 10, 13, 12)
+    const state = createDemoSeed()
+    const candidates = freezeCandidates(state, now)
+    expect(candidates.length).toBeGreaterThan(0)
+    expect(candidates.every(lot => lot.estado && lot.es_transformable && lot.cantidad_disponible > 0
+      && expiryStatus(lot.fecha_vencimiento, now) !== 'vencido'
+      && state.productos.find(product => product.id_producto === lot.detail?.id_producto)?.tipo_producto === 'Fresca')).toBe(true)
+  })
+
+  it('sugiere lotes frescos críticos o en advertencia en orden de vencimiento', () => {
+    const suggestions = freezeSuggestions(createDemoSeed(), new Date())
+    expect(suggestions.length).toBeGreaterThan(0)
+    expect(suggestions.every(lot => ['critico', 'advertencia'].includes(expiryStatus(lot.fecha_vencimiento)))).toBe(true)
+    expect(suggestions.map(lot => lot.fecha_vencimiento)).toEqual([...suggestions].map(lot => lot.fecha_vencimiento).sort())
+  })
+
+  it('convierte gramos y empaques a kg y exige kg por unidad cuando corresponde', () => {
+    expect(toKg(250, 'g')).toBe(0.25)
+    expect(toKg(2, 'Bulto', 10)).toBe(20)
+    expect(() => toKg(2, 'Caja')).toThrow('Indique los kg por unidad.')
+    expect(() => toKg(1, 'g')).toThrow('La cantidad mínima es 10 g (0.01 kg).')
+    expect(() => toKg(1, 'Bolsa', 0)).toThrow('Indique los kg por unidad.')
+  })
+
+  it('rechaza compras sin líneas y un total negativo por descuento', () => {
+    const state = createDemoSeed()
+    expect(() => createPurchase(state, {
+      id_proveedor: 1, id_usuario: 1, fecha: localDateString(), iva: 0, descuento: 0, lines: [],
+    })).toThrow('Debe agregar al menos un producto a la orden de compra.')
+    expect(() => createPurchase(state, {
+      id_proveedor: 1, id_usuario: 1, fecha: localDateString(), iva: 0, descuento: 100,
+      lines: [{ id_producto: 1, cantidad_kg: 1, precio_unitario: 10 }],
+    })).toThrow('El total de la compra no puede ser negativo.')
+  })
+
+  it('interpreta fechas ISO de día y timestamps locales sin cambio de calendario', () => {
+    const originalTimezone = process.env.TZ
+    process.env.TZ = 'America/Bogota'
+    try {
+      expect(localDateFromTimestamp('2026-11-12')).toBe('2026-11-12')
+      expect(localDateFromTimestamp('2026-11-12T23:30:00')).toBe('2026-11-12')
+    } finally {
+      process.env.TZ = originalTimezone
+    }
+  })
+
+  it('clasifica vencimientos de hoy, mañana, pasado mañana y ayer', () => {
+    const now = new Date(2026, 10, 13, 12)
+    expect(expiryStatus('2026-11-13', now)).toBe('critico')
+    expect(expiryStatus('2026-11-14', now)).toBe('critico')
+    expect(expiryStatus('2026-11-15', now)).toBe('advertencia')
+    expect(expiryStatus('2026-11-12', now)).toBe('vencido')
+  })
+
+  it('agrupa movimientos por fecha local y genera 12 meses calendario', () => {
+    const state = createDemoSeed()
+    const now = new Date(2026, 10, 11, 20)
+    state.ventas = [{ ...state.ventas[0], fecha_venta: '2026-11-11T09:00:00', total_pagar: 4321, estado: true }]
+    state.compras = [{ ...state.compras[0], fecha_compra: '2026-11-11T10:00:00', total_compra: 1234, estado: true }]
+    expect(dashboardStats(state, now).salesToday).toBe(4321)
+    expect(periodRows(state, 'Diario', now)[0]).toMatchObject({ date: '2026-11-11', ventas: 4321, compras: 1234 })
+    state.ventas = [
+      { ...state.ventas[0], fecha_venta: '2026-10-03T10:00:00', total_pagar: 1234 },
+      { ...state.ventas[0], id_venta: 999, fecha_venta: '2026-11-03T10:00:00', total_pagar: 4321 },
+    ]
+    const annual = periodRows(state, 'Anual', new Date(2026, 10, 11, 12))
+    expect(annual).toHaveLength(12)
+    expect(annual.at(-2)).toMatchObject({ date: '2026-10-01', ventas: 1234 })
+    expect(annual.at(-1)).toMatchObject({ date: '2026-11-01', ventas: 4321 })
+    expect(localDateFromTimestamp('2026-11-11')).toBe('2026-11-11')
+  })
+
+  it('rechaza login inválido e inactivo', () => {
+    const state = createDemoSeed()
+    expect(() => login(state, 'admin@fresas.co', 'incorrecta')).toThrow(INVALID_CREDENTIALS)
+    state.usuarios[0].estado = false
+    expect(() => login(state, 'admin@fresas.co', 'Admin123*')).toThrow(INACTIVE_ACCOUNT)
+  })
+
+  it('aplica permisos de Vendedor y Operario y restringe rutas sin permiso (403 lógico)', () => {
+    const state = createDemoSeed()
+    const seller = login(state, 'ventas@fresas.co', 'Ventas123*')
+    const operator = login(state, 'operario@fresas.co', 'Operario123*')
+    expect(hasPermission(state, seller.id_rol, 'Ventas', 'Registrar')).toBe(true)
+    expect(hasPermission(state, seller.id_rol, 'Compras', 'Consultar')).toBe(false)
+    expect(getHomePath(state, seller)).toBe('/ventas')
+    expect(hasPermission(state, operator.id_rol, 'Producción', 'Finalizar')).toBe(true)
+    expect(hasPermission(state, operator.id_rol, 'Ventas', 'Consultar')).toBe(false)
+    expect(getHomePath(state, operator)).toBe('/compras')
+  })
+
+  it('protege el rol principal y valida correo inválido de usuario', () => {
+    const state = createDemoSeed()
+    expect(() => toggleMasterState(state, 'rol', 1)).toThrow('No es posible desactivar el rol principal del sistema.')
+    const permissionPair = [{ id_permiso: 1, id_privilegio: 1 }]
+    expect(() => saveMaster(state, 'rol', { nombre_rol: 'Vendedor' }, undefined, permissionPair))
+      .toThrow('El nombre de rol ingresado ya existe en la plataforma.')
+    expect(() => saveMaster(state, 'rol', { nombre_rol: 'Ventas / Admin' }, undefined, permissionPair))
+      .toThrow('No se permiten caracteres especiales')
+    expect(() => saveMaster(state, 'rol', { nombre_rol: 'Nuevo rol' }, undefined, []))
+      .toThrow('Debe asignar al menos un permiso al rol.')
+    expect(() => toggleMasterState(state, 'usuario', 1, 1))
+      .toThrow('No puede desactivar su propio usuario mientras mantiene sesión activa.')
+    expect(() => login(toggleMasterState(state, 'rol', 2), 'ventas@fresas.co', 'Ventas123*')).toThrow(INACTIVE_ACCOUNT)
+    expect(() => saveMaster(state, 'usuario', {
+      nombre: 'Nuevo', apellido: 'Usuario', correo: 'correo-invalido', id_rol: '2', contrasenia: 'Clave1234',
+    })).toThrow('El correo electrónico no posee un formato válido.')
+  })
+
+  it('edita cliente aunque el documento de búsqueda llegue como número', () => {
+    const state = createDemoSeed()
+    const client = state.clientes.find(row => row.numero_documento === '1017123456')!
+    const edited = saveMaster(state, 'cliente', {
+      numero_documento: client.numero_documento, tipo_documento: client.tipo_documento,
+      nombre_cliente: 'Cliente Editado', telefono: client.telefono ?? '', correo: client.correo ?? '',
+      direccion: client.direccion ?? '', id_municipio: String(client.id_municipio ?? ''),
+    }, Number(client.numero_documento))
+    expect(edited.clientes.find(row => row.numero_documento === client.numero_documento)?.nombre_cliente).toBe('Cliente Editado')
+    expect(() => toggleMasterState(state, 'cliente', Number(client.numero_documento))).not.toThrow()
+  })
+
+  it('rechaza una venta que supera el stock vendible', () => {
+    const state = createDemoSeed()
+    const fresh = state.productos.find(row => row.tipo_producto === 'Fresca')!
+    const available = stockVendible(state, fresh.id_producto)
+    expect(() => createSale(state, {
+      numero_documento: '222222222222', id_usuario: 2, tipo_venta: 'Detal', iva: 0, descuento_total: 0,
+      pagos: [{ metodo_pago: 'Efectivo', monto: 1 }],
+      lines: [{ id_producto: fresh.id_producto, cantidad: available + 1 }],
+    })).toThrow(`Stock insuficiente para el producto seleccionado. Cantidad disponible: ${available}`)
+    checkInvariants(state)
+  })
+
+  it('rechaza método de pago fuera del catálogo Efectivo y Transferencia', () => {
+    const state = createDemoSeed()
+    const frozen = state.productos.find(row => row.tipo_producto === 'Congelada')!
+    expect(() => createSale(state, {
+      numero_documento: '222222222222', id_usuario: 2, tipo_venta: 'Detal', iva: 0, descuento_total: 0,
+      pagos: [{ metodo_pago: 'Tarjeta' as never, monto: frozen.precio_venta_detal }],
+      lines: [{ id_producto: frozen.id_producto, cantidad: 1 }],
+    })).toThrow('El método de pago no es válido.')
+  })
+
+  it('vende fresa fresca en 250 g convertidos a kg y devuelve el lote al anular', () => {
+    const state = createDemoSeed()
+    const fresh = state.productos.find(row => row.tipo_producto === 'Fresca')!
+    const quantityKg = toKg(250, 'g')
+    const sale = createSale(state, {
+      numero_documento: '222222222222', id_usuario: 2, tipo_venta: 'Detal', iva: 0, descuento_total: 0,
+      pagos: [{ metodo_pago: 'Efectivo', monto: quantityKg * fresh.precio_venta_detal }],
+      lines: [{ id_producto: fresh.id_producto, cantidad: quantityKg }],
+    })
+    const saleId = sale.ventas.at(-1)!.id_venta
+    const detail = sale.detalle_venta.find(row => row.id_venta === saleId)!
+    expect(detail).toMatchObject({ cantidad: 0.25, unidad_medida: 'kg' })
+    const beforeCancel = sale.lotes.find(row => row.id_lote === detail.id_lote)!.cantidad_disponible
+    const canceled = cancelSale(sale, saleId, 'Reversión de prueba')
+    expect(canceled.lotes.find(row => row.id_lote === detail.id_lote)?.cantidad_disponible).toBe(beforeCancel + 0.25)
+    checkInvariants(canceled)
+  })
+
+  it('completa compra, producción, venta y anulación verificando invariantes en cada paso', () => {
+    let state = createDemoSeed()
+    state = createPurchase(state, {
+      id_proveedor: 1, id_usuario: 1, fecha: localDateString(), iva: 0, descuento: 0,
+      lines: [{ id_producto: 1, cantidad_kg: 4, precio_unitario: 7000, lote: {
+        numero_lote: 'FLUJO-V2', id_ubicacion: 315, tipo_empaque: 'Caja',
+        fecha_ingreso: localDateString(), fecha_vencimiento: futureDate(20),
+      } }],
+    })
+    checkInvariants(state)
+    const source = state.lotes.find(row => row.numero_lote === 'FLUJO-V2')!
+    state = createProductionOrder(state, { id_usuario: 3, id_lote_origen: source.id_lote, cantidad_a_procesar: 2 })
+    checkInvariants(state)
+    const orderId = state.produccion.at(-1)!.id_produccion
+    state = finishProduction(state, orderId, { unidades_obtenidas: 1, id_ubicacion: 366, fecha_vencimiento: futureDate(180) })
+    checkInvariants(state)
+    const output = state.detalle_produccion.find(row => row.id_produccion === orderId)!
+    const product = state.productos.find(row => row.id_producto === output.id_producto)!
+    state = createSale(state, {
+      numero_documento: '222222222222', id_usuario: 2, tipo_venta: 'Detal', iva: 0, descuento_total: 0,
+      pagos: [{ metodo_pago: 'Transferencia', monto: product.precio_venta_detal, referencia: 'FLUJO-REF' }],
+      lines: [{ id_producto: product.id_producto, cantidad: 1 }],
+    })
+    checkInvariants(state)
+    const saleId = state.ventas.at(-1)!.id_venta
+    state = cancelSale(state, saleId, 'Reversión integrada')
+    checkInvariants(state)
+    expect(state.ventas.find(row => row.id_venta === saleId)?.estado).toBe(false)
+  })
+
+  it('reparte una venta fresca entre lotes disponibles por orden FEFO', () => {
+    const state = createDemoSeed()
+    const fresh = state.productos.find(row => row.tipo_producto === 'Fresca')!
+    const candidates = stockByLot(state, fresh.id_producto)
+      .filter(lot => lot.estado && lot.fecha_vencimiento >= localDateString() && lot.cantidad_disponible > 0)
+      .sort((a, b) => a.fecha_vencimiento.localeCompare(b.fecha_vencimiento) || a.id_lote - b.id_lote)
+    expect(candidates.length).toBeGreaterThanOrEqual(2)
+    const quantity = Number((candidates[0].cantidad_disponible + 0.1).toFixed(2))
+    expect(candidates[1].cantidad_disponible).toBeGreaterThanOrEqual(0.1)
+    const next = createSale(state, {
+      numero_documento: '222222222222', id_usuario: 2, tipo_venta: 'Detal', iva: 0, descuento_total: 0,
+      pagos: [{ metodo_pago: 'Efectivo', monto: quantity * fresh.precio_venta_detal }],
+      lines: [{ id_producto: fresh.id_producto, cantidad: quantity }],
+    })
+    const details = next.detalle_venta.filter(row => row.id_venta === next.ventas.at(-1)!.id_venta)
+    expect(details.map(row => row.id_lote)).toEqual([candidates[0].id_lote, candidates[1].id_lote])
+    expect(details[0].cantidad).toBe(candidates[0].cantidad_disponible)
+    expect(details[1].cantidad).toBeCloseTo(0.1, 8)
+    checkInvariants(next)
   })
 
   it('valida los permisos contra los pares válidos del módulo y aplica rol 1 como administrador', () => {
