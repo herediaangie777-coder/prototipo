@@ -6,17 +6,17 @@ export const NO_MODULE_ACCESS_MESSAGE = 'Su rol no tiene permisos asignados. Con
 const moduleRoutes: Array<[string, string]> = [
   ['/ventas', 'Ventas'],
   ['/compras', 'Compras'],
-  ['/produccion', 'Produccion'],
-  ['/existencias', 'Inventario'],
-  ['/productos', 'Inventario'],
-  ['/categorias', 'Inventario'],
-  ['/lotes', 'Inventario'],
-  ['/clientes', 'Ventas'],
-  ['/proveedores', 'Compras'],
+  ['/produccion', 'Producción'],
+  ['/productos', 'Productos'],
+  ['/categorias', 'Categorías'],
+  ['/proveedores', 'Proveedores'],
+  ['/clientes', 'Clientes'],
+  ['/roles', 'Roles y permisos'],
+  ['/usuarios', 'Usuarios'],
+  ['/dashboard', 'Dashboard'],
 ]
 
 export function getHomePath(state: AppState, user: Usuario): string | null {
-  const role = state.roles.find(row => row.id_rol === user.id_rol)
-  if (user.id_rol === 1 || role?.nombre_rol === 'Administrador') return '/dashboard'
-  return moduleRoutes.find(([, module]) => hasPermission(state, user.id_rol, module, 'Leer'))?.[0] ?? null
+  if (user.id_rol === 1) return '/dashboard'
+  return moduleRoutes.find(([, module]) => hasPermission(state, user.id_rol, module, 'Consultar'))?.[0] ?? null
 }

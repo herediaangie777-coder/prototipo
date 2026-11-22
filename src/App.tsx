@@ -4,26 +4,24 @@ import { ConfirmModal, Field, Ic, Modal, P } from './components/shared'
 import { ToastProvider, useToast } from './components/toast'
 import { login, PASSWORD_RULE, validPassword } from './data/services/auth'
 import { commit } from './data/services/business'
-import { hasPermission, expiringLots, productName, sellableStock } from './data/selectors'
+import { hasPermission, expiringLots, sellableStock, stockBajo } from './data/selectors'
 import { expiryStatus, localDateString } from './data/dates'
 import { getHomePath, NO_MODULE_ACCESS_MESSAGE } from './data/navigation'
 import { formatId } from './data/format'
 import { consumeDemoUpdatedNotice, getState, updateStore, useStore, resetDemoData } from './data/store'
 import type { Usuario } from './data/types'
-import { DashboardPage, HistoryPage, InventoryPage, LotsPage, MasterPage, ProductionPage, PurchasePage, RolesPage, SalePage } from './modules/Pages'
+import { DashboardPage, MasterPage, ProductionPage, PurchasePage, RolesPage, SalePage } from './modules/Pages'
 
 const paths = [
   ['/dashboard', 'Dashboard', P.dashboard, null],
-  ['/roles', 'Roles & Permisos', P.shield, null],
-  ['/usuarios', 'Usuarios', P.users, null],
-  ['/categorias', 'Categorías', P.tag, 'Inventario'],
-  ['/productos', 'Productos', P.package, 'Inventario'],
-  ['/proveedores', 'Proveedores', P.truck, 'Compras'],
+  ['/roles', 'Roles y permisos', P.shield, 'Roles y permisos'],
+  ['/usuarios', 'Usuarios', P.users, 'Usuarios'],
+  ['/categorias', 'Categorías', P.tag, 'Categorías'],
+  ['/productos', 'Productos', P.package, 'Productos'],
+  ['/proveedores', 'Proveedores', P.truck, 'Proveedores'],
   ['/compras', 'Compras', P.boxes, 'Compras'],
-  ['/lotes', 'Lotes', P.layers, 'Inventario'],
-  ['/existencias', 'Existencias', P.stock, 'Inventario'],
-  ['/produccion', 'Producción', P.production, 'Produccion'],
-  ['/clientes', 'Clientes', P.users, 'Ventas'],
+  ['/produccion', 'Producción', P.production, 'Producción'],
+  ['/clientes', 'Clientes', P.users, 'Clientes'],
   ['/ventas', 'Ventas', P.sales, 'Ventas'],
 ] as const
 
@@ -131,30 +129,39 @@ function relativeTime(timestamp: string) {
   return `${ago ? 'Hace' : 'En'} ${days} día${days === 1 ? '' : 's'}`
 }
 
+function dateDistance(date: string, today: string) {
+  const [year, month, day] = date.split('-').map(Number)
+  const [todayYear, todayMonth, todayDay] = today.split('-').map(Number)
+  return Math.round((Date.UTC(year, month - 1, day) - Date.UTC(todayYear, todayMonth - 1, todayDay)) / 86400000)
+}
+
+function quantityUnit(value: number, unit: string) {
+  return unit === 'bolsa' ? value === 1 ? 'bolsa' : 'bolsas' : unit
+}
+
 function Notifications() {
   const state = useStore(); const [open, setOpen] = useState(false); const [read, setRead] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('fresas-notifications-read') ?? '[]') as string[] } catch { return [] }
   })
   const notices = [
-    ...expiringLots(state).map(lot => {
+    ...expiringLots(state).filter(lot => state.productos.find(product => product.id_producto === lot.detail?.id_producto)?.tipo_producto === 'Fresca').map(lot => {
+      const difference = dateDistance(lot.fecha_vencimiento, localDateString())
+      const product = state.productos.find(item => item.id_producto === lot.detail?.id_producto)
+      const category = product && state.categorias.find(item => item.id_categoria === product.id_categoria)?.nombre_categoria
       const status = expiryStatus(lot.fecha_vencimiento)
       return {
         id: `lot-${lot.id_lote}`,
-        text: status === 'vencido'
-          ? `Lote ${lot.numero_lote} vencido`
-          : lot.fecha_vencimiento === localDateString()
-            ? `Lote ${lot.numero_lote} vence hoy`
-            : `Lote ${lot.numero_lote} vence en ${status === 'critico' ? 'menos de 24 hrs' : '24–48 hrs'}`,
+        text: `Fresa fresca del lote ${lot.numero_lote} (${category ?? 'sin categoría'}, ${lot.cantidad_disponible.toLocaleString('es-CO', { maximumFractionDigits: 2 })} kg) ${difference < 0 ? `venció hace ${Math.abs(difference)} día${Math.abs(difference) === 1 ? '' : 's'}` : difference === 0 ? 'vence hoy' : difference === 1 ? 'vence mañana' : `vence en ${difference} días`}`,
         time: lot.fecha_vencimiento,
         severity: status === 'advertencia' ? 'warning' : 'danger',
         icon: P.alert,
       }
     }),
-    ...state.productos.filter(product => product.estado && sellableStock(state, product.id_producto) <= product.stock_minimo).map(product => {
+    ...state.productos.filter(product => product.estado && stockBajo(state, product.id_producto)).map(product => {
       const category = state.categorias.find(row => row.id_categoria === product.id_categoria)?.nombre_categoria ?? ''
       return {
         id: `stock-${product.id_producto}`,
-        text: `Stock bajo: Fresa ${product.tipo_producto} · ${category} (${sellableStock(state, product.id_producto).toLocaleString('es-CO', { maximumFractionDigits: 2 })} kg)`,
+        text: `Stock bajo: Fresa ${product.tipo_producto} · ${category} (${sellableStock(state, product.id_producto).toLocaleString('es-CO', { maximumFractionDigits: 2 })} ${quantityUnit(sellableStock(state, product.id_producto), product.unidad_medida)}, mínimo ${product.stock_minimo} ${quantityUnit(product.stock_minimo, product.unidad_medida)})`,
         time: 'Ahora',
         severity: 'warning',
         icon: P.package,
@@ -204,17 +211,18 @@ function AppLayout() {
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />
   if (!homePath) return null
   const role = state.roles.find(row => row.id_rol === user.id_rol)
-  const allowed = (module: string) => user.id_rol === 1 || hasPermission(state, user.id_rol, module, 'Leer')
-  const routePerms: Record<string, string | null> = { '/dashboard': null, '/roles': null, '/usuarios': null, '/categorias': 'Inventario', '/productos': 'Inventario', '/proveedores': 'Compras', '/compras': 'Compras', '/lotes': 'Inventario', '/existencias': 'Inventario', '/produccion': 'Produccion', '/clientes': 'Ventas', '/ventas': 'Ventas' }
-  const visible = paths.filter(([path]) => {
-    if (user.id_rol === 1) return true
-    const permission = routePerms[path]
-    return permission !== null && hasPermission(state, user.id_rol, permission!, 'Leer')
-  })
+  const allowed = (module: string) => user.id_rol === 1 || hasPermission(state, user.id_rol, module, 'Consultar')
+  const routePerms: Record<string, string> = {
+    '/dashboard': 'Dashboard', '/roles': 'Roles y permisos', '/usuarios': 'Usuarios',
+    '/categorias': 'Categorías', '/productos': 'Productos', '/proveedores': 'Proveedores',
+    '/compras': 'Compras',
+    '/produccion': 'Producción', '/clientes': 'Clientes', '/ventas': 'Ventas',
+  }
+  const visible = paths.filter(([path]) => allowed(routePerms[path]))
   const fullname = `${user.nombre} ${user.apellido}`
   const initials = `${user.nombre[0] ?? ''}${user.apellido[0] ?? ''}`.toUpperCase()
   const activeTitle = paths.find(([path]) => path === location.pathname)?.[1] ?? ''
-  const openLots = () => navigate('/lotes?filter=Por%20vencer')
+  const openLots = () => navigate('/productos')
   return <div className="app-shell">
     {mobileOpen && <button className="sidebar-backdrop" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
     <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
@@ -224,17 +232,15 @@ function AppLayout() {
     </aside>
     <main className="main-content"><header className="top-header"><button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Abrir menú">≡</button><div><h1>{activeTitle}</h1><p>Gestión comercial · Datos guardados en este navegador</p></div><Notifications /></header>
       <Routes>
-        <Route path="/dashboard" element={user.id_rol === 1 ? <DashboardPage openLots={openLots} /> : <Navigate to={homePath} replace />} />
-        <Route path="/roles" element={user.id_rol === 1 ? <RolesPage /> : <Navigate to={homePath} replace />} />
-        <Route path="/usuarios" element={user.id_rol === 1 ? <MasterPage kind="usuarios" /> : <Navigate to={homePath} replace />} />
-        <Route path="/categorias" element={allowed('Inventario') ? <MasterPage kind="categorias" /> : <Navigate to={homePath} replace />} />
-        <Route path="/productos" element={allowed('Inventario') ? <MasterPage kind="productos" /> : <Navigate to={homePath} replace />} />
-        <Route path="/proveedores" element={allowed('Compras') ? <><MasterPage kind="proveedores" /><HistoryPage kind="proveedores" /></> : <Navigate to={homePath} replace />} />
+        <Route path="/dashboard" element={allowed('Dashboard') ? <DashboardPage openLots={openLots} /> : <Navigate to={homePath} replace />} />
+        <Route path="/roles" element={allowed('Roles y permisos') ? <RolesPage /> : <Navigate to={homePath} replace />} />
+        <Route path="/usuarios" element={allowed('Usuarios') ? <MasterPage kind="usuarios" /> : <Navigate to={homePath} replace />} />
+        <Route path="/categorias" element={allowed('Categorías') ? <MasterPage kind="categorias" /> : <Navigate to={homePath} replace />} />
+        <Route path="/productos" element={allowed('Productos') ? <MasterPage kind="productos" /> : <Navigate to={homePath} replace />} />
+        <Route path="/proveedores" element={allowed('Proveedores') ? <MasterPage kind="proveedores" /> : <Navigate to={homePath} replace />} />
         <Route path="/compras" element={allowed('Compras') ? <PurchasePage /> : <Navigate to={homePath} replace />} />
-        <Route path="/lotes" element={allowed('Inventario') ? <LotesRoute /> : <Navigate to={homePath} replace />} />
-        <Route path="/existencias" element={allowed('Inventario') ? <InventoryPage /> : <Navigate to={homePath} replace />} />
-        <Route path="/produccion" element={allowed('Produccion') ? <ProductionPage /> : <Navigate to={homePath} replace />} />
-        <Route path="/clientes" element={allowed('Ventas') ? <><MasterPage kind="clientes" /><HistoryPage kind="clientes" /></> : <Navigate to={homePath} replace />} />
+        <Route path="/produccion" element={allowed('Producción') ? <ProductionPage /> : <Navigate to={homePath} replace />} />
+        <Route path="/clientes" element={allowed('Clientes') ? <MasterPage kind="clientes" /> : <Navigate to={homePath} replace />} />
         <Route path="/ventas" element={allowed('Ventas') ? <SalePage /> : <Navigate to={homePath} replace />} />
         <Route path="*" element={<Navigate to={homePath} replace />} />
       </Routes>
@@ -243,11 +249,6 @@ function AppLayout() {
     <ConfirmModal open={resetConfirm} title="¿Restablecer datos demo?" message="Se reemplazarán todos los datos guardados en este navegador." actionLabel="Restablecer datos" onCancel={() => setResetConfirm(false)} onConfirm={() => { resetDemoData(); setResetConfirm(false); toast('success', 'Datos demo restablecidos', 'El prototipo quedó listo para comenzar de nuevo.') }} />
   </div>
 }
-function LotesRoute() {
-  const [params] = useSearchParams(); const navigate = useNavigate()
-  return <LotsPage filter={params.get('filter') ?? 'Todos'} onConvert={id => { sessionStorage.setItem('fresas-production-lot', String(id)); navigate('/produccion') }} />
-}
-
 function RouterApp() {
   return <ToastProvider><BrowserRouter><Routes><Route path="/login" element={<SignIn />} /><Route path="/restablecer" element={<ResetPassword />} /><Route path="/*" element={<AppLayout />} /></Routes></BrowserRouter></ToastProvider>
 }

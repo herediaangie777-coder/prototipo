@@ -21,6 +21,21 @@
 - QA navegador verificó validación de roles, persistencia de permisos, errores de login/inactividad y recuperación de contraseña; se restauraron los datos demo al terminar.
 - Los toggles de estado usan tokens semánticos en lugar de colores claros codificados, para mantener legibilidad entre temas.
 
+## 2026-11-22
+
+- Se completó la compra multilínea en modal adaptable con edición protegida si hay movimientos, cálculo en vivo de subtotal/descuento/IVA/total en pesos, asociación de lotes y reporte por rango de fechas.
+- Producción opera en dos pasos: orden En proceso, edición limitada al estado, finalización con bolsas enteras, cálculo en vivo de kg/merma/rendimiento y lote congelado generado.
+- El POS diferencia unidades para producto fresco y bolsas enteras para congelado; guarda referencias de transferencia en los pagos y presenta detalle/comprobante con lotes, descuentos, IVA y métodos de pago.
+- El dashboard exporta los datos de cada widget por separado, expresa stock en kg (incluido congelado) y permite iniciar producción desde las sugerencias de congelación.
+- Se actualizó README y QA con el alcance y el inventario honesto de capturas. Quedan pendientes capturas claras/oscuras específicas de matriz de roles, detalle de producto con lotes, modal de finalizar y botones de exportación por widget; no hay herramienta de captura de navegador disponible en este entorno.
+
+- Se migró el modelo local y sus servicios a productos en kg/bolsas, inventario derivado de lotes, producción en dos pasos, ventas FEFO con lote obligatorio, ubicaciones y permisos por módulo/acción. Se incrementó `SEED_VERSION` a 5 y se actualizó el seed y sus invariantes.
+- Se eliminaron los ajustes manuales de existencias; las compras sin lote no generan stock y las producciones finalizadas generan un lote congelado con vencimiento.
+- Desviación bloqueante: `db/fresas_oriente_bd_v2.sql` no está en el workspace, el historial ni la rama remota disponible. No se fabricó ni copió un dump sustituto. La matriz `permisos_privilegios`, sus asignaciones demo y los catálogos geográficos se implementaron provisionalmente a partir de la descripción recibida; no pueden certificarse como idénticos al SQL v2 hasta contar con ese archivo.
+- Se retiraron las rutas y pantallas independientes de Lotes y Existencias; los lotes ahora aparecen en detalles de Compras y Productos, con exportación real de existencias en Excel y PDF.
+- Se alinearon formularios, listados y detalles de maestros con el modelo v2, incluidos estados editables y selects dependientes de departamento/municipio. La matriz de roles ahora aplica privilegios válidos, acceso por Consultar, selección por filas/columnas y permisos exactos por acción.
+- Las notificaciones identifican la fresa, su calibre y cantidad, en vez de presentar el lote como sujeto de la alerta.
+
 ## 2026-11-13
 
 - Se alinearon roles y categorías con el esquema PostgreSQL eliminando descripciones del modelo, seed y mantenimiento; sus estados y `ventas.motivo_anulacion` siguen pendientes en BD.

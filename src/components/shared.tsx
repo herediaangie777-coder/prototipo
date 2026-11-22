@@ -140,29 +140,11 @@ export function EditBtn({ onClick, title = 'Editar' }: { onClick: () => void; ti
   )
 }
 
-// Sync/Refresh — teal/purple
-export function SyncBtn({ onClick, title = 'Actualizar existencias' }: { onClick: () => void; title?: string }) {
-  return (
-    <button type="button" className="semantic-action" title={title} aria-label={title} onClick={onClick} style={iconBtnStyle('var(--action-sync)')}>
-      <Ic d={P.refresh} size={15} />
-    </button>
-  )
-}
-
 // Clipboard — slate blue (history)
 export function HistoryBtn({ onClick, title = 'Historial de compras' }: { onClick: () => void; title?: string }) {
   return (
     <button type="button" className="semantic-action" title={title} aria-label={title} onClick={onClick} style={iconBtnStyle('var(--action-history)')}>
       <Ic d={P.clipboard} size={15} />
-    </button>
-  )
-}
-
-// Arrow-down — orange (descontar existencias)
-export function DeductBtn({ onClick, title = 'Descontar existencias' }: { onClick: () => void; title?: string }) {
-  return (
-    <button type="button" className="semantic-action" title={title} aria-label={title} onClick={onClick} style={iconBtnStyle('var(--action-deduct)')}>
-      <Ic d={P.arrowDown} size={15} />
     </button>
   )
 }

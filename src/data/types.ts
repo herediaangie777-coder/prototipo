@@ -3,18 +3,18 @@ export type MetodoPago = 'Efectivo' | 'Transferencia'
 export type TipoDocumento = 'CC' | 'CE' | 'NIT' | 'PAS'
 export type TipoEmpaque = 'Bulto' | 'Caja' | 'Bolsa'
 export type TipoProducto = 'Fresca' | 'Congelada'
+export type EstadoProduccion = 'En proceso' | 'Finalizada' | 'Anulada'
 export type TipoVenta = 'Detal' | 'Mayorista'
 export type TableName =
-  | 'categorias' | 'clientes' | 'compras' | 'detalle_compra'
-  | 'detalle_produccion' | 'detalle_venta' | 'lotes' | 'pagos_venta'
-  | 'permisos' | 'privilegios' | 'produccion' | 'productos'
-  | 'proveedores' | 'roles' | 'roles_x_permisos' | 'usuarios' | 'ventas'
+  | 'categorias' | 'clientes' | 'compras' | 'departamentos' | 'detalle_compra'
+  | 'detalle_produccion' | 'detalle_venta' | 'lotes' | 'municipios' | 'pagos_venta'
+  | 'permisos' | 'permisos_privilegios' | 'privilegios' | 'produccion' | 'productos'
+  | 'proveedores' | 'roles' | 'roles_x_permisos' | 'ubicaciones' | 'usuarios' | 'ventas'
 
-export interface Categoria {
-  id_categoria: number
-  nombre_categoria: string
-  estado: boolean // PENDIENTE EN BD
-}
+export interface Categoria { id_categoria: number; nombre_categoria: string; estado: boolean }
+export interface Departamento { id_departamento: number; nombre_departamento: string }
+export interface Municipio { id_municipio: number; id_departamento: number; nombre_municipio: string }
+export interface Ubicacion { id_ubicacion: number; nombre_ubicacion: string; estado: boolean }
 export interface Cliente {
   numero_documento: string
   tipo_documento: TipoDocumento
@@ -23,8 +23,7 @@ export interface Cliente {
   correo: string | null
   direccion: string | null
   estado: boolean
-  departamento: string | null
-  municipio: string | null
+  id_municipio: number | null
 }
 export interface Compra {
   id_compra: number
@@ -42,7 +41,7 @@ export interface DetalleCompra {
   id_compra: number
   id_producto: number
   cantidad: number
-  unidad_medida: string
+  unidad_medida: 'kg'
   precio_unitario: number
 }
 export interface DetalleProduccion {
@@ -50,26 +49,27 @@ export interface DetalleProduccion {
   id_produccion: number
   id_producto: number
   cantidad_obtenida: number
-  unidad_medida: string | null
+  unidad_medida: 'bolsa'
 }
 export interface DetalleVenta {
   id_detalle_venta: number
   id_venta: number
   id_producto: number
-  id_lote: number | null
+  id_lote: number
   cantidad: number
-  unidad_medida: string
+  unidad_medida: 'kg' | 'bolsa'
   precio_unitario: number
 }
 export interface Lote {
   id_lote: number
-  id_detalle_compra: number
+  id_detalle_compra: number | null
+  id_detalle_produccion: number | null
   numero_lote: string
   fecha_ingreso: string
   fecha_vencimiento: string
   tipo_empaque: TipoEmpaque
   cantidad_disponible: number
-  zona_ubicacion: string | null
+  id_ubicacion: number
   es_transformable: boolean
   estado: boolean
 }
@@ -78,30 +78,32 @@ export interface PagoVenta {
   id_venta: number
   metodo_pago: MetodoPago
   monto_recibido: number
+  referencia: string | null
 }
 export interface Permiso { id_permiso: number; nombre_permiso: string }
 export interface Privilegio { id_privilegio: number; nombre_privilegio: string }
+export interface PermisoPrivilegio { id_permiso: number; id_privilegio: number }
 export interface Produccion {
   id_produccion: number
   id_usuario: number
-  id_lote: number
+  id_lote_origen: number
   fecha_produccion: string
-  cantidad_procesada: number
-  merma: number
+  cantidad_a_procesar: number
+  merma: number | null
+  estado: EstadoProduccion
+  fecha_finalizacion: string | null
   observaciones: string | null
-  unidad_medida: string | null
 }
 export interface Producto {
   id_producto: number
   id_categoria: number
   tipo_producto: TipoProducto
   presentacion: string
-  unidad_medida: string
+  unidad_medida: 'kg' | 'bolsa'
+  peso_unidad_kg: number | null
   precio_compra: number
   precio_venta_detal: number
   precio_venta_mayorista: number
-  stock_inicial: number
-  stock_disponible: number
   stock_minimo: number
   estado: boolean
 }
@@ -112,14 +114,9 @@ export interface Proveedor {
   correo: string | null
   direccion: string | null
   estado: boolean
-  municipio: string | null
-  departamento: string | null
+  id_municipio: number | null
 }
-export interface Rol {
-  id_rol: number
-  nombre_rol: string
-  estado: boolean // PENDIENTE EN BD
-}
+export interface Rol { id_rol: number; nombre_rol: string; estado: boolean }
 export interface RolPermiso { id_rol: number; id_permiso: number; id_privilegio: number }
 export interface Usuario {
   id_usuario: number
@@ -141,25 +138,28 @@ export interface Venta {
   descuento_total: number
   total_pagar: number
   estado: boolean
-  motivo_anulacion: string | null // PENDIENTE EN BD
+  motivo_anulacion: string | null
 }
-
 export interface AppState {
   categorias: Categoria[]
   clientes: Cliente[]
   compras: Compra[]
+  departamentos: Departamento[]
   detalle_compra: DetalleCompra[]
   detalle_produccion: DetalleProduccion[]
   detalle_venta: DetalleVenta[]
   lotes: Lote[]
+  municipios: Municipio[]
   pagos_venta: PagoVenta[]
   permisos: Permiso[]
+  permisos_privilegios: PermisoPrivilegio[]
   privilegios: Privilegio[]
   produccion: Produccion[]
   productos: Producto[]
   proveedores: Proveedor[]
   roles: Rol[]
   roles_x_permisos: RolPermiso[]
+  ubicaciones: Ubicacion[]
   usuarios: Usuario[]
   ventas: Venta[]
   nextIds: Record<TableName, number>

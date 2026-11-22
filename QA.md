@@ -19,7 +19,7 @@
 - [ ] Usuarios: alta, edición, filtro por rol, estado y rechazo de auto-inactivación.
 - [x] Navegador: los campos requeridos de usuarios señalan errores bajo el campo y el selector de rol presenta borde de error.
 - [ ] Categorías: alta, edición, productos asociados y confirmación de estado.
-- [ ] Productos: alta, detalle de lotes, stock mínimo y ajuste manual.
+- [ ] Productos: alta, detalle de lotes y stock mínimo.
 - [ ] Proveedores: CRUD e historial calculado.
 - [x] Historial de proveedores: incluye folio/fecha y total individual por compra, además de la suma histórica del proveedor.
 - [ ] Compras: registrar, asociar lote y anular compra permitida/bloqueada.
@@ -81,5 +81,19 @@ La compra de evidencia contiene dos líneas (20 kg y 10 kg), descuento de $ 5.00
 | Caja (2 kg), pago mixto | [Orden](./qa-capturas/pos-caja-orden-claro.png), [pago](./qa-capturas/pos-caja-mixto-pago-claro.png) | [Orden](./qa-capturas/pos-caja-orden-oscuro.png), [pago](./qa-capturas/pos-caja-mixto-pago-oscuro.png) |
 | Bulto (10 kg), pago mixto | [Orden](./qa-capturas/pos-bulto-orden-claro.png), [pago](./qa-capturas/pos-bulto-mixto-pago-claro.png) | [Orden](./qa-capturas/pos-bulto-orden-oscuro.png), [pago](./qa-capturas/pos-bulto-mixto-pago-oscuro.png) |
 | Alerta de stock insuficiente | [Captura](./qa-capturas/pos-stock-alerta-claro.png) | [Captura](./qa-capturas/pos-stock-alerta-oscuro.png) |
+
+### Evidencia solicitada para los flujos ampliados
+
+Las capturas disponibles arriba acreditan la compra multilínea, POS fresco/congelado y los escenarios de producción existentes. El directorio `qa-capturas/` todavía no contiene tomas específicas para las filas siguientes; quedan pendientes de captura desde el preview en ambos temas:
+
+| Vista solicitada | Claro | Oscuro |
+| --- | --- | --- |
+| Roles, matriz de permisos | Pendiente | Pendiente |
+| Productos, detalle con lotes | Pendiente | Pendiente |
+| Compras, modal rediseñado completo | [Líneas y lotes](./qa-capturas/compra-lineas-claro.png) · [totales](./qa-capturas/compra-totales-claro.png) | [Líneas y lotes](./qa-capturas/compra-lineas-oscuro.png) · [totales](./qa-capturas/compra-totales-oscuro.png) |
+| Producción, listado con acciones | [Listado filtrado](./qa-capturas/filtro-produccion-claro.png) | [Listado filtrado](./qa-capturas/filtro-produccion-oscuro.png) |
+| Producción, modal Finalizar | Pendiente | Pendiente |
+| POS congelados | [Captura](./qa-capturas/pos-congelada-claro.png) | [Captura](./qa-capturas/pos-congelada-oscuro.png) |
+| Dashboard, exportar por gráfico | [Dashboard](./qa-capturas/dashboard-claro.png) | [Dashboard](./qa-capturas/dashboard-oscuro.png) |
 
 Se comprobó en navegador que el filtro de Usuarios por rol reduce el listado y que «Limpiar» restaura las filas; en Ventas, filtrar por transferencia actualiza el contador y muestra solo coincidencias. Las acciones de creación de compra, producción y venta no se confirmaron durante la captura, por lo que los datos demo permanecen intactos.
