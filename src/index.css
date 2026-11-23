@@ -892,3 +892,23 @@ h1,h2,h3,h4,h5,h6 { font-family: 'Outfit', sans-serif; }
   .period-tabs button { padding: 6px; font-size: 11px; }
   .login-card { padding: 24px 20px; }
 }
+
+/* Role permissions: responsive module cards replace the old wide matrix. */
+.permission-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 100%; margin: 14px 0; }
+.permission-cards.matrix-error .permission-card { border-color: var(--danger-text); }
+.permission-card { min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); box-shadow: var(--shadow-sm); }
+.permission-card-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 11px; }
+.permission-card-header h3 { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--text-head); font-size: 13px; }
+.permission-count { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.permission-card-header .link-button { flex: 0 0 auto; padding: 3px 0; font-size: 11px; }
+.permission-card-actions { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.permission-check { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; color: var(--text); font-size: 11px; cursor: pointer; }
+.permission-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--active); }
+.permission-check input:focus-visible, .permission-card-header .link-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.data-table th:last-child, .data-table td[data-label="Acciones"] { min-width: 160px; }
+.data-table td[data-label="Fecha"], .data-table td[data-label="Lote(s)"], .data-table td[data-label="Lote origen"], .badge-blue { white-space: nowrap; }
+.action-finish { width: 32px; height: 32px; flex: 0 0 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--semantic-positive); cursor: pointer; }
+.action-finish:hover { background: color-mix(in srgb, var(--semantic-positive) 12%, transparent); }
+.action-finish:focus-visible { outline: 2px solid var(--semantic-positive); outline-offset: 2px; }
+@media (max-width: 768px) { .permission-cards { grid-template-columns: minmax(0, 1fr); } }
+.purchase-detail-line .cell-sub, .ticket-item small, .ticket-header span { white-space: nowrap; }

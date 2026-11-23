@@ -7,6 +7,7 @@ import { getHomePath } from '../navigation'
 import { INACTIVE_ACCOUNT, INVALID_CREDENTIALS, login } from './auth'
 import { saveMaster, toggleMasterState } from './masters'
 import { toKg } from '../units'
+import { moduleActions } from '../moduleActions'
 import {
   associateLot, cancelProduction, cancelPurchase, cancelSale, createProductionOrder, createPurchase,
   createSale, editPurchase, finishProduction, updateProductionOrder,
@@ -558,5 +559,17 @@ describe('modelo de datos v2', () => {
     expect(hasPermission(state, 2, 'Compras', 'Registrar')).toBe(false)
     expect(() => login(state, 'admin@fresas.co', 'Admin123*')).not.toThrow()
     checkInvariants(state)
+  })
+
+  it('mantiene moduleActions exactamente alineado con permisos_privilegios para cada módulo', () => {
+    const state = createDemoSeed()
+    expect(Object.keys(moduleActions).sort()).toEqual(state.permisos.map(row => row.nombre_permiso).sort())
+    for (const permission of state.permisos) {
+      const actual = state.permisos_privilegios
+        .filter(pair => pair.id_permiso === permission.id_permiso)
+        .map(pair => state.privilegios.find(privilege => privilege.id_privilegio === pair.id_privilegio)!.nombre_privilegio)
+        .sort()
+      expect(actual, permission.nombre_permiso).toEqual([...moduleActions[permission.nombre_permiso as keyof typeof moduleActions]].sort())
+    }
   })
 })

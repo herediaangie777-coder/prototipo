@@ -6,7 +6,8 @@ import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { ConfirmModal, EditBtn, Field, FilterPopover, Ic, LoteBtn, Modal, P, Pagination, PermBtn, SearchBar, Toggle, TrashBtn, ViewBtn, fmt } from '../components/shared'
 import { useToast } from '../components/toast'
-import { clientHistory, dashboardStats, expiringLots, freezeSuggestions, hasPermission, periodRows, productName, sellableStock, stockBajo, stockByLot, stockVendible, stockVencido } from '../data/selectors'
+import { clientHistory, dashboardStats, expiringLots, freezeSuggestions, periodRows, productName, sellableStock, stockBajo, stockByLot, stockVendible, stockVencido } from '../data/selectors'
+import { canModuleAction, moduleActions } from '../data/moduleActions'
 import { getState, updateStore, useStore } from '../data/store'
 import { associateLot, cancelProduction, cancelPurchase, cancelSale, createProductionOrder, createPurchase, createSale, editPurchase, finishProduction, updateProductionOrder } from '../data/services/business'
 import { saveMaster, toggleMasterState } from '../data/services/masters'
@@ -318,12 +319,12 @@ export function MasterPage({ kind }: { kind: Exclude<ModuleKey, 'roles'> }) {
   const user = state.usuarios.find(item => item.id_usuario === Number(sessionStorage.getItem('fresas-user-id')))
   const moduleName = kind === 'categorias' ? 'Categorías' : kind === 'productos' ? 'Productos'
     : kind === 'proveedores' ? 'Proveedores' : kind === 'clientes' ? 'Clientes' : 'Usuarios'
-  const canFilter = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, moduleName, 'Filtrar')
-  const canView = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, moduleName, 'Ver detalle')
-  const canCreate = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, moduleName, 'Registrar')
-  const canUpdate = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, moduleName, 'Editar')
-  const canChangeState = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, moduleName, 'Cambiar estado')
-  const canExport = kind === 'productos' && (user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, moduleName, 'Exportar'))
+  const canFilter = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, moduleName, 'Filtrar')
+  const canView = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, moduleName, 'Ver detalle')
+  const canCreate = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, moduleName, 'Registrar')
+  const canUpdate = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, moduleName, 'Editar')
+  const canChangeState = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, moduleName, 'Cambiar estado')
+  const canExport = kind === 'productos' && (user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, moduleName, 'Exportar'))
   const exportStock = (format: 'excel' | 'pdf') => {
     try {
       exportProductStock(state, format)
@@ -403,7 +404,7 @@ export function MasterPage({ kind }: { kind: Exclude<ModuleKey, 'roles'> }) {
   }
   return <section>
     <div className="page-toolbar">
-      <SearchBar placeholder={`Buscar ${config.title.toLowerCase()}...`} value={query} onChange={value => { setQuery(value); setPage(1) }} />
+      {canFilter && <SearchBar placeholder={`Buscar ${config.title.toLowerCase()}...`} value={query} onChange={value => { setQuery(value); setPage(1) }} />}
       {canFilter && <FilterPopover activeCount={activeFilterCount} onClear={clearFilters}>
         {kind === 'usuarios' && <Field label="Rol"><select className="select" value={filters.role} onChange={event => setFilter('role', event.target.value)}><option value="">Todos los roles</option>{state.roles.map(role => <option key={role.id_rol} value={role.id_rol}>{role.nombre_rol}</option>)}</select></Field>}
         {kind === 'productos' && <>
@@ -470,11 +471,11 @@ export function RolesPage() {
   const state = useStore()
   const toast = useToast()
   const user = state.usuarios.find(item => item.id_usuario === Number(sessionStorage.getItem('fresas-user-id')))
-  const canFilter = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Roles y permisos', 'Filtrar')
-  const canView = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Roles y permisos', 'Ver detalle')
-  const canCreate = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Roles y permisos', 'Registrar')
-  const canUpdate = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Roles y permisos', 'Editar')
-  const canChangeState = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Roles y permisos', 'Cambiar estado')
+  const canFilter = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Roles y permisos', 'Filtrar')
+  const canView = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Roles y permisos', 'Ver detalle')
+  const canCreate = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Roles y permisos', 'Registrar')
+  const canUpdate = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Roles y permisos', 'Editar')
+  const canChangeState = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Roles y permisos', 'Cambiar estado')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [highlightedId, setHighlightedId] = useState<number | null>(null)
@@ -527,29 +528,6 @@ export function RolesPage() {
     if (add) next.push(...valid)
     setSelectedPerms(next)
   }
-  const toggleColumn = (privilegeId: number) => {
-    const valid = state.permisos_privilegios.filter(pair => pair.id_privilegio === privilegeId)
-    const allSelected = valid.length > 0 && valid.every(pair => selectedPerms.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio === pair.id_privilegio))
-    const consultId = state.privilegios.find(item => item.nombre_privilegio === 'Consultar')?.id_privilegio
-    let next = [...selectedPerms]
-    for (const pair of valid) {
-      const current = next.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio === pair.id_privilegio)
-      if (allSelected && current) {
-        next = next.filter(item => !(item.id_permiso === pair.id_permiso && item.id_privilegio === pair.id_privilegio))
-        if (pair.id_privilegio === consultId) next = next.filter(item => item.id_permiso !== pair.id_permiso)
-        else if (!next.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio !== consultId)) next = next.filter(item => item.id_permiso !== pair.id_permiso)
-      } else if (!allSelected && !current) {
-        next.push({ id_permiso: pair.id_permiso, id_privilegio: pair.id_privilegio })
-        if (pair.id_privilegio !== consultId && consultId !== undefined
-          && state.permisos_privilegios.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio === consultId)
-          && !next.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio === consultId)) {
-          next.push({ id_permiso: pair.id_permiso, id_privilegio: consultId })
-        }
-      }
-    }
-    setSelectedPerms(next)
-    if (next.length) setFormErrors(errors => ({ ...errors, permissions: '' }))
-  }
   const save = () => {
     const errors: Record<string, string> = {}
     if (!name.trim()) errors.name = 'Este campo es obligatorio'
@@ -579,8 +557,16 @@ export function RolesPage() {
   }
   const rows = state.roles.filter(row => row.nombre_rol.toLowerCase().includes(search.toLowerCase()) && (!statusFilter || String(row.estado) === statusFilter))
   const shown = rows.slice((page - 1) * 10, page * 10)
+  const moduleCards = state.permisos.map(permission => {
+    const validPairs = state.permisos_privilegios.filter(pair => pair.id_permiso === permission.id_permiso)
+      .map(pair => ({ pair, privilege: state.privilegios.find(item => item.id_privilegio === pair.id_privilegio)! }))
+      .sort((a, b) => (moduleActions[permission.nombre_permiso as keyof typeof moduleActions] as readonly string[]).indexOf(a.privilege.nombre_privilegio)
+        - (moduleActions[permission.nombre_permiso as keyof typeof moduleActions] as readonly string[]).indexOf(b.privilege.nombre_privilegio))
+    const selectedCount = validPairs.filter(({ pair }) => selectedPerms.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio === pair.id_privilegio)).length
+    return { permission, validPairs, selectedCount }
+  })
   return <section>
-    <div className="page-toolbar"><SearchBar placeholder="Buscar por nombre de rol..." value={search} onChange={value => { setSearch(value); setPage(1) }} />
+    <div className="page-toolbar">{canFilter && <SearchBar placeholder="Buscar por nombre de rol..." value={search} onChange={value => { setSearch(value); setPage(1) }} />}
       {canFilter && <FilterPopover activeCount={statusFilter ? 1 : 0} onClear={() => { setStatusFilter(''); setPage(1) }}>
         <Field label="Estado"><select className="select" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(1) }}><option value="">Todos los estados</option><option value="true">Activo</option><option value="false">Inactivo</option></select></Field>
       </FilterPopover>}
@@ -592,10 +578,21 @@ export function RolesPage() {
     <Modal open={modal} title={role ? `${editable ? 'Editar' : 'Detalle de'} rol: ${role.nombre_rol}` : 'Registrar rol'} onClose={() => setModal(false)} wide>
       <Field label="Nombre del rol"><input className={`input ${formErrors.name ? 'input-error' : ''}`} maxLength={30} value={name} disabled={!editable} onChange={e => { setName(e.target.value); setFormErrors(prev => ({ ...prev, name: '' })) }} />{formErrors.name && <small className="field-error">{formErrors.name}</small>}</Field>
       <Field label="Estado">{canChangeState && editable && role?.id_rol !== 1 ? <Toggle active={roleState} onChange={() => setRoleState(value => !value)} /> : <span className={`badge ${(role?.id_rol === 1 || roleState) ? 'badge-green' : 'badge-red'}`}>{(role?.id_rol === 1 || roleState) ? 'Activo' : 'Inactivo'}</span>}</Field>
-      <div className="permission-matrix-scroll"><div className={`permission-matrix ${formErrors.permissions ? 'matrix-error' : ''}`}><div className="matrix-row matrix-header"><b>Módulo</b>{state.privilegios.map(item => { const columnPairs = state.permisos_privilegios.filter(pair => pair.id_privilegio === item.id_privilegio); return <label key={item.id_privilegio} title={`Marcar toda la columna válida: ${item.nombre_privilegio}`}><strong>{item.nombre_privilegio === 'Consultar' ? 'Consultar (acceso al módulo)' : item.nombre_privilegio}</strong><input type="checkbox" aria-label={`Marcar toda la columna válida: ${item.nombre_privilegio}`} disabled={!editable || !columnPairs.length} checked={columnPairs.length > 0 && columnPairs.every(pair => selectedPerms.some(selected => selected.id_permiso === pair.id_permiso && selected.id_privilegio === pair.id_privilegio))} onChange={() => toggleColumn(item.id_privilegio)} /></label>})}</div>{state.permisos.map(permission => <div className="matrix-row" key={permission.id_permiso}><div className="matrix-module"><strong>{permission.nombre_permiso}</strong><button type="button" className="link-button" disabled={!editable} onClick={() => toggleRow(permission.id_permiso)}>Marcar toda la fila válida</button></div>{state.privilegios.map(privilege => {
-        const valid = state.permisos_privilegios.some(pair => pair.id_permiso === permission.id_permiso && pair.id_privilegio === privilege.id_privilegio)
-        return valid ? <label key={privilege.id_privilegio}><input type="checkbox" disabled={!editable} checked={selectedPerms.some(p => p.id_permiso === permission.id_permiso && p.id_privilegio === privilege.id_privilegio)} onChange={() => toggle(permission.id_permiso, privilege.id_privilegio)} /></label> : <span className="matrix-invalid" key={privilege.id_privilegio}>—</span>
-      })}</div>)}</div></div>{formErrors.permissions && <small className="field-error">{formErrors.permissions}</small>}
+      <div className={`permission-cards ${formErrors.permissions ? 'matrix-error' : ''}`}>
+        {moduleCards.map(({ permission, validPairs, selectedCount }) => <article className="permission-card" key={permission.id_permiso}>
+          <header className="permission-card-header">
+            <h3>{permission.nombre_permiso}</h3>
+            <span className="permission-count">{selectedCount}/{validPairs.length}</span>
+            <button type="button" className="link-button" disabled={!editable || !validPairs.length} onClick={() => toggleRow(permission.id_permiso)}>
+              {selectedCount === validPairs.length && validPairs.length > 0 ? 'Quitar todo' : 'Marcar todo'}
+            </button>
+          </header>
+          <div className="permission-card-actions">{validPairs.map(({ pair, privilege }) => <label className="permission-check" key={pair.id_privilegio}>
+            <input type="checkbox" disabled={!editable} checked={selectedPerms.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio === pair.id_privilegio)} onChange={() => toggle(pair.id_permiso, pair.id_privilegio)} />
+            <span>{privilege.nombre_privilegio === 'Consultar' ? 'Consultar (acceso al módulo)' : privilege.nombre_privilegio}</span>
+          </label>)}</div>
+        </article>)}
+      </div>{formErrors.permissions && <small className="field-error">{formErrors.permissions}</small>}
       <div className="modal-actions"><button className="btn-secondary" onClick={() => setModal(false)}>Cerrar</button>{editable && (role ? canUpdate : canCreate) && <button className="btn-primary" onClick={save}>Guardar</button>}</div>
     </Modal>
     {canChangeState && <ConfirmModal open={confirm !== null} title="¿Cambiar estado del rol?" message="El rol dejará de estar disponible para asignación." actionLabel="Cambiar estado" onCancel={() => setConfirm(null)} onConfirm={() => {
@@ -608,13 +605,13 @@ export function RolesPage() {
 export function PurchasePage() {
   const state = useStore(); const toast = useToast()
   const user = state.usuarios.find(item => item.id_usuario === Number(sessionStorage.getItem('fresas-user-id')))
-  const canFilter = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Compras', 'Filtrar')
-  const canView = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Compras', 'Ver detalle')
-  const canCreate = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Compras', 'Registrar')
-  const canEdit = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Compras', 'Editar')
-  const canDelete = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Compras', 'Anular')
-  const canAssociateLot = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Compras', 'Asociar lote')
-  const canExport = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Compras', 'Exportar')
+  const canFilter = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Compras', 'Filtrar')
+  const canView = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Compras', 'Ver detalle')
+  const canCreate = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Compras', 'Registrar')
+  const canEdit = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Compras', 'Editar')
+  const canDelete = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Compras', 'Anular')
+  const canAssociateLot = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Compras', 'Asociar lote')
+  const canExport = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Compras', 'Exportar')
   const [open, setOpen] = useState(false); const [query, setQuery] = useState(''); const [page, setPage] = useState(1); const [cancelId, setCancelId] = useState<number | null>(null)
   const [purchaseFilters, setPurchaseFilters] = useState({ supplier: '', status: '', from: '', to: '' })
   const [editingPurchaseId, setEditingPurchaseId] = useState<number | null>(null)
@@ -834,7 +831,7 @@ export function PurchasePage() {
     toast('success', `${format === 'excel' ? 'Excel' : 'PDF'} exportado`, 'El reporte de compras se descargó correctamente.')
   }
   return <section>
-    <div className="page-toolbar"><SearchBar placeholder="Buscar por compra o proveedor..." value={query} onChange={value => { setQuery(value); setPage(1) }} />
+    <div className="page-toolbar">{canFilter && <SearchBar placeholder="Buscar por compra o proveedor..." value={query} onChange={value => { setQuery(value); setPage(1) }} />}
       {canFilter && <FilterPopover activeCount={purchaseFilterCount} onClear={clearPurchaseFilters}>
         <Field label="Proveedor"><select className="select" value={purchaseFilters.supplier} onChange={event => setPurchaseFilter('supplier', event.target.value)}><option value="">Todos los proveedores</option>{state.proveedores.map(provider => <option key={provider.id_proveedor} value={provider.id_proveedor}>{provider.nombre_proveedor}</option>)}</select></Field>
         <Field label="Estado"><select className="select" value={purchaseFilters.status} onChange={event => setPurchaseFilter('status', event.target.value)}><option value="">Todos los estados</option><option value="true">Activas</option><option value="false">Anuladas</option></select></Field>
@@ -979,12 +976,12 @@ export function PurchasePage() {
 export function ProductionPage() {
   const state = useStore(); const toast = useToast()
   const user = state.usuarios.find(item => item.id_usuario === Number(sessionStorage.getItem('fresas-user-id')))
-  const canFilter = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Producción', 'Filtrar')
-  const canView = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Producción', 'Ver detalle')
-  const canCreate = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Producción', 'Registrar')
-  const canEdit = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Producción', 'Editar')
-  const canFinish = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Producción', 'Finalizar')
-  const canCancel = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Producción', 'Anular')
+  const canFilter = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Filtrar')
+  const canView = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Ver detalle')
+  const canCreate = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Registrar')
+  const canEdit = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Editar')
+  const canFinish = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Finalizar')
+  const canCancel = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Anular')
   const [open, setOpen] = useState(false); const [lotId, setLotId] = useState(() => sessionStorage.getItem('fresas-production-lot') ?? '')
   const [quantity, setQuantity] = useState(''); const [quantityUnit, setQuantityUnit] = useState<'kg' | 'g'>('kg')
   const [observations, setObservations] = useState('')
@@ -1129,7 +1126,7 @@ export function ProductionPage() {
     } catch (error) { toast('error', 'No se pudo anular la producción', messageOf(error)) }
     setCancelId(null)
   }
-  return <section><div className="page-toolbar"><SearchBar placeholder="Buscar orden, lote u operario..." value={query} onChange={value => { setQuery(value); setPage(1) }} />
+  return <section><div className="page-toolbar">{canFilter && <SearchBar placeholder="Buscar orden, lote u operario..." value={query} onChange={value => { setQuery(value); setPage(1) }} />}
       {canFilter && <FilterPopover activeCount={Object.values(filters).filter(Boolean).length} onClear={clearProductionFilters}>
         <div className="filter-date-range"><Field label="Desde"><input className="input" type="date" value={filters.from} onChange={event => setProductionFilter('from', event.target.value)} /></Field><Field label="Hasta"><input className="input" type="date" value={filters.to} onChange={event => setProductionFilter('to', event.target.value)} /></Field></div>
         <Field label="Operario"><select className="select" value={filters.operator} onChange={event => setProductionFilter('operator', event.target.value)}><option value="">Todos los operarios</option>{state.usuarios.map(operator => <option key={operator.id_usuario} value={operator.id_usuario}>{operator.nombre} {operator.apellido}</option>)}</select></Field>
@@ -1156,7 +1153,7 @@ export function ProductionPage() {
         <td data-label="Acciones"><div className="actions">
           {canView && <ViewBtn onClick={() => setDetailId(row.id_produccion)} />}
           {canEdit && row.estado === 'En proceso' && <EditBtn title="Editar orden" onClick={() => beginEdit(row.id_produccion)} />}
-          {canFinish && row.estado === 'En proceso' && <button className="btn-secondary action-finish" onClick={() => beginFinish(row.id_produccion)}><Ic d={P.check} size={14} /> Finalizar</button>}
+          {canFinish && row.estado === 'En proceso' && <button type="button" className="action-finish" title="Finalizar orden" aria-label="Finalizar orden" onClick={() => beginFinish(row.id_produccion)}><Ic d={P.check} size={16} /></button>}
           {canCancel && row.estado !== 'Anulada' && <TrashBtn title="Anular producción" onClick={() => setCancelId(row.id_produccion)} />}
         </div></td>
       </tr>
@@ -1224,10 +1221,11 @@ export function ProductionPage() {
 export function SalePage() {
   const state = useStore(); const toast = useToast()
   const user = state.usuarios.find(item => item.id_usuario === Number(sessionStorage.getItem('fresas-user-id')))
-  const canFilter = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Ventas', 'Filtrar')
-  const canView = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Ventas', 'Ver detalle')
-  const canCreate = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Ventas', 'Registrar')
-  const canDelete = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Ventas', 'Anular')
+  const canFilter = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Ventas', 'Filtrar')
+  const canView = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Ventas', 'Ver detalle')
+  const canCreate = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Ventas', 'Registrar')
+  const canDelete = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Ventas', 'Anular')
+  const canExport = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Ventas', 'Exportar')
   const [tab, setTab] = useState<'pos' | 'history'>('pos')
   const [selectedType, setSelectedType] = useState<TipoProducto | ''>('')
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
@@ -1411,6 +1409,33 @@ export function SalePage() {
       && (!historyFilters.status || String(row.estado) === historyFilters.status)
       && dateInRange(row.fecha_venta, historyFilters.from, historyFilters.to)
   }).sort((a, b) => b.id_venta - a.id_venta)
+  const exportSales = (format: 'excel' | 'pdf') => {
+    const rows = filteredSales.map(sale => {
+      const client = state.clientes.find(row => row.numero_documento === sale.numero_documento)
+      const details = state.detalle_venta.filter(row => row.id_venta === sale.id_venta)
+      const payments = state.pagos_venta.filter(row => row.id_venta === sale.id_venta)
+      return [
+        formatId('V', sale.id_venta), localDateFromTimestamp(sale.fecha_venta), client?.nombre_cliente ?? '—', sale.tipo_venta,
+        details.map(line => `${productName(state, line.id_producto)} (${quantityLabel(line.cantidad)} ${line.unidad_medida})`).join(', '),
+        sale.descuento_total, sale.iva, sale.total_pagar,
+        payments.map(payment => `${payment.metodo_pago}: ${fmt(payment.monto_recibido)}${payment.referencia ? ` · Ref. ${payment.referencia}` : ''}`).join(' · '),
+        sale.estado ? 'Activa' : 'Anulada',
+      ]
+    })
+    const headers = ['N° de venta', 'Fecha', 'Cliente', 'Tipo', 'Productos / unidades', 'Descuento', 'IVA', 'Total', 'Pagos', 'Estado']
+    const range = `${historyFilters.from || 'inicio'}-${historyFilters.to || 'hoy'}`
+    if (format === 'excel') {
+      const book = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([headers, ...rows]), 'Ventas')
+      XLSX.writeFile(book, `reporte-ventas-${range}.xlsx`)
+    } else {
+      const doc = new jsPDF({ orientation: 'landscape' })
+      doc.text(`Reporte de ventas · ${historyFilters.from || 'Todas'} a ${historyFilters.to || 'Hoy'}`, 14, 16)
+      autoTable(doc, { head: [headers], body: rows.map(row => row.map(String)), startY: 22 })
+      doc.save(`reporte-ventas-${range}.pdf`)
+    }
+    toast('success', `${format === 'excel' ? 'Excel' : 'PDF'} exportado`, 'El reporte de ventas se descargó correctamente.')
+  }
   return <section>
     <div className="tab-bar"><button className={`tab-item ${tab === 'pos' ? 'active' : ''}`} onClick={() => setTab('pos')}>POS mostrador</button><button className={`tab-item ${tab === 'history' ? 'active' : ''}`} onClick={() => { setTab('history'); setPage(1) }}>Historial de ventas</button></div>
     {tab === 'pos' ? <div className="pos-layout">
@@ -1468,13 +1493,14 @@ export function SalePage() {
         {saleErrors.payment && <small className="field-error">{saleErrors.payment}</small>}
         {canCreate && <><button className="btn-primary full-width" disabled={registerDisabled} onClick={registerSale}>Registrar venta</button>{registerDisabled && <small className="muted">{registerReason}</small>}</>}
       </aside>
-    </div> : <><div className="page-toolbar"><SearchBar placeholder="Buscar venta, cliente o documento..." value={historyQuery} onChange={value => { setHistoryQuery(value); setPage(1) }} />
+    </div> : <><div className="page-toolbar">{canFilter && <SearchBar placeholder="Buscar venta, cliente o documento..." value={historyQuery} onChange={value => { setHistoryQuery(value); setPage(1) }} />}
       {canFilter && <FilterPopover activeCount={Object.values(historyFilters).filter(Boolean).length} onClear={clearHistoryFilters}>
         <Field label="Tipo de venta"><select className="select" value={historyFilters.saleType} onChange={event => setHistoryFilter('saleType', event.target.value)}><option value="">Todos los tipos</option><option>Detal</option><option>Mayorista</option></select></Field>
         <Field label="Medio de pago"><select className="select" value={historyFilters.method} onChange={event => setHistoryFilter('method', event.target.value)}><option value="">Todos los medios</option><option>Efectivo</option><option>Transferencia</option></select></Field>
         <Field label="Estado"><select className="select" value={historyFilters.status} onChange={event => setHistoryFilter('status', event.target.value)}><option value="">Todos los estados</option><option value="true">Activas</option><option value="false">Anuladas</option></select></Field>
         <div className="filter-date-range"><Field label="Desde"><input className="input" type="date" value={historyFilters.from} onChange={event => setHistoryFilter('from', event.target.value)} /></Field><Field label="Hasta"><input className="input" type="date" value={historyFilters.to} onChange={event => setHistoryFilter('to', event.target.value)} /></Field></div>
       </FilterPopover>}
+      {canExport && <div className="purchase-report-actions"><span>Exportar reporte de ventas</span><button className="btn-secondary widget-export-button" onClick={() => exportSales('excel')}>Excel</button><button className="btn-secondary widget-export-button" onClick={() => exportSales('pdf')}>PDF</button><small>{historyFilters.from || 'Todas'} – {historyFilters.to || 'las fechas'}</small></div>}
     </div><div className="card table-scroll"><table className="data-table"><thead><tr><th>Venta</th><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Descuento</th><th>IVA</th><th>Total</th><th>Pago</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{filteredSales.slice((page - 1) * 10, page * 10).map(row => {
       const methods = state.pagos_venta.filter(payment => payment.id_venta === row.id_venta).map(payment => `${payment.metodo_pago}: ${fmt(payment.monto_recibido)}${payment.referencia ? ` · Ref. ${payment.referencia}` : ''}`).join(' · ')
       return <tr key={row.id_venta}><td data-label="Venta">{formatId('V', row.id_venta)}</td><td data-label="Fecha">{row.fecha_venta.slice(0, 16).replace('T', ' ')}</td><td data-label="Cliente">{state.clientes.find(client => client.numero_documento === row.numero_documento)?.nombre_cliente}</td><td data-label="Tipo">{row.tipo_venta}</td><td data-label="Descuento">{fmt(row.descuento_total)}</td><td data-label="IVA">{fmt(row.iva)}</td><td data-label="Total">{fmt(row.total_pagar)}</td><td data-label="Pago">{methods}</td><td data-label="Estado"><span className={`badge ${row.estado ? 'badge-green' : 'badge-red'}`}>{row.estado ? 'Activa' : 'Anulada'}</span></td><td data-label="Acciones"><div className="actions">{canView && <ViewBtn title="Ver detalle y ticket" onClick={() => setSelectedSaleId(row.id_venta)} />}{canDelete && row.estado && <TrashBtn title="Anular venta" onClick={() => { setCancelReason(''); setCancelReasonError(''); setCancelId(row.id_venta) }} />}</div></td></tr>
@@ -1508,15 +1534,13 @@ export function DashboardPage({ openLots }: { openLots: () => void }) {
   const navigate = useNavigate()
   const state = useStore(); const toast = useToast()
   const user = state.usuarios.find(item => item.id_usuario === Number(sessionStorage.getItem('fresas-user-id')))
-  const canFilterDashboard = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Dashboard', 'Filtrar')
-  const canExport = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Dashboard', 'Exportar')
-  const canCreateProduction = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Producción', 'Registrar')
-  const canViewProducts = user?.id_rol === 1 || hasPermission(state, user?.id_rol ?? -1, 'Productos', 'Consultar')
-  const [period, setPeriod] = useState<'Diario' | 'Semanal' | 'Mensual' | 'Anual'>('Semanal'); const [stockMode, setStockMode] = useState<'type' | 'category'>('type')
+  const canExport = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Dashboard', 'Exportar')
+  const canCreateProduction = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Registrar')
+  const canViewProducts = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Productos', 'Consultar')
+  const period = 'Semanal' as const
   const stats = dashboardStats(state); const rows = periodRows(state, period); const lotWarnings = expiringLots(state); const lotsToFreeze = freezeSuggestions(state).slice(0, 5)
-  const byCategory = stats.stockByCategory
-  const pieData = stockMode === 'type' ? stats.stockByType : byCategory
-  const label = period === 'Diario' ? 'Hoy' : period === 'Semanal' ? 'Últimos 7 días' : period === 'Mensual' ? 'Últimos 30 días' : 'Últimos 12 meses'
+  const pieData = stats.stockByType
+  const label = 'Últimos 7 días'
   const exportWidget = (title: string, fileName: string, headers: string[], data: Array<Array<string | number>>, format: 'excel' | 'pdf') => {
     if (format === 'excel') {
       const book = XLSX.utils.book_new()
@@ -1571,7 +1595,7 @@ export function DashboardPage({ openLots }: { openLots: () => void }) {
     { title: 'Rend. Transformación', value: `${(stats.yieldAverage * 100).toFixed(1)}%`, note: 'Promedio de las últimas 10 órdenes', icon: P.sparkle, tone: 'yield', noteTone: 'neutral' },
   ]
   return <section>
-    <div className="page-toolbar">{canFilterDashboard ? <div className="period-tabs">{(['Diario', 'Semanal', 'Mensual', 'Anual'] as const).map(item => <button className={period === item ? 'selected' : ''} key={item} onClick={() => setPeriod(item)}>{item}</button>)}</div> : <span className="muted">{label}</span>}</div>
+    <div className="page-toolbar"><span className="muted">{label}</span></div>
     <div className="summary-grid four">{kpis.map(item => <article key={item.title} className={`card dashboard-kpi ${item.tone}`} onClick={item.tone === 'critical' && canViewProducts ? openLots : undefined} onKeyDown={event => {
       if (item.tone === 'critical' && canViewProducts && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openLots() }
     }} role={item.tone === 'critical' && canViewProducts ? 'button' : undefined} tabIndex={item.tone === 'critical' && canViewProducts ? 0 : undefined}>
@@ -1583,9 +1607,7 @@ export function DashboardPage({ openLots }: { openLots: () => void }) {
       {!rows.some(row => row.ventas || row.compras) ? <div className="table-empty">No se registran datos para la temporalidad seleccionada.</div> : <ResponsiveContainer width="100%" height={240}><LineChart data={rows}><CartesianGrid stroke="var(--border-soft)" strokeDasharray="3 3" /><XAxis dataKey="label" /><YAxis /><Tooltip formatter={value => fmt(Number(value ?? 0))} /><Line dataKey="ventas" stroke="var(--chart-sales)" name="Ventas" /><Line dataKey="compras" stroke="var(--chart-purchases)" name="Compras" /></LineChart></ResponsiveContainer>}</div>
       <div className="card chart-card">
         <div className="chart-card-heading"><div><h2>Distribución de stock</h2>
-        <p>{quantityLabel(pieData.reduce((sum, row) => sum + row.value, 0))} kg · {canFilterDashboard
-          ? <button className="link-button" onClick={() => setStockMode(stockMode === 'type' ? 'category' : 'type')}>Por {stockMode === 'type' ? 'tipo' : 'calibre'}</button>
-          : `Por ${stockMode === 'type' ? 'tipo' : 'calibre'}`}</p></div>{widgetExport('Distribución de stock', 'dashboard-distribucion-stock', ['Grupo', 'Stock', 'Unidad'], stockChartRows)}</div>
+        <p>{quantityLabel(pieData.reduce((sum, row) => sum + row.value, 0))} kg · Por tipo</p></div>{widgetExport('Distribución de stock', 'dashboard-distribucion-stock', ['Grupo', 'Stock', 'Unidad'], stockChartRows)}</div>
         <div className="donut-chart"><ResponsiveContainer width="100%" height={240}>
           <PieChart>
             <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={78}>

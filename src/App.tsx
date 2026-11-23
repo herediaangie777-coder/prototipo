@@ -4,7 +4,8 @@ import { ConfirmModal, Field, Ic, Modal, P } from './components/shared'
 import { ToastProvider, useToast } from './components/toast'
 import { login, PASSWORD_RULE, validPassword } from './data/services/auth'
 import { commit } from './data/services/business'
-import { hasPermission, expiringLots, sellableStock, stockBajo } from './data/selectors'
+import { expiringLots, sellableStock, stockBajo } from './data/selectors'
+import { canModuleAction, type ModuleName } from './data/moduleActions'
 import { expiryStatus, localDateString } from './data/dates'
 import { getHomePath, NO_MODULE_ACCESS_MESSAGE } from './data/navigation'
 import { formatId } from './data/format'
@@ -211,8 +212,8 @@ function AppLayout() {
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />
   if (!homePath) return null
   const role = state.roles.find(row => row.id_rol === user.id_rol)
-  const allowed = (module: string) => user.id_rol === 1 || hasPermission(state, user.id_rol, module, 'Consultar')
-  const routePerms: Record<string, string> = {
+  const allowed = (module: ModuleName) => user.id_rol === 1 || canModuleAction(state, user.id_rol, module, 'Consultar')
+  const routePerms: Record<string, ModuleName> = {
     '/dashboard': 'Dashboard', '/roles': 'Roles y permisos', '/usuarios': 'Usuarios',
     '/categorias': 'Categorías', '/productos': 'Productos', '/proveedores': 'Proveedores',
     '/compras': 'Compras',

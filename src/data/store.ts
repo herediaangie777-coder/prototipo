@@ -4,7 +4,7 @@ import { checkInvariants } from './invariants'
 import type { AppState } from './types'
 
 const STORAGE_KEY = 'fresas-oriente-store-v2'
-export const SEED_VERSION = 5
+export const SEED_VERSION = 6
 type StoredState = { seedVersion: number; data: AppState }
 let demoUpdatedNoticePending = false
 let state: AppState = load()

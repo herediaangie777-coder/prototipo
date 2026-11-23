@@ -1,6 +1,7 @@
 import type { AppState, MetodoPago, TableName } from './types'
 import { checkInvariants } from './invariants'
 import { localDateString, localTimestampString } from './dates'
+import { moduleActions } from './moduleActions'
 
 const tables: TableName[] = [
   'categorias', 'clientes', 'compras', 'departamentos', 'detalle_compra', 'detalle_produccion',
@@ -24,19 +25,6 @@ const emptyIds = () => Object.fromEntries(tables.map(table => [table, 1])) as Re
 
 const moduleNames = ['Dashboard', 'Roles y permisos', 'Usuarios', 'Categorías', 'Productos', 'Proveedores', 'Compras', 'Producción', 'Clientes', 'Ventas']
 const actionNames = ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado', 'Anular', 'Exportar', 'Asociar lote', 'Finalizar']
-const validActionNames: Record<string, string[]> = {
-  Dashboard: ['Consultar', 'Filtrar', 'Exportar'],
-  'Roles y permisos': ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado'],
-  Usuarios: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado'],
-  Categorías: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado'],
-  Productos: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado'],
-  Proveedores: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado'],
-  Compras: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Anular', 'Asociar lote', 'Exportar'],
-  Producción: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Anular', 'Finalizar'],
-  Clientes: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado', 'Exportar'],
-  Ventas: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Anular', 'Exportar'],
-}
-
 export function createDemoSeed(): AppState {
   const categorias = ['Calibre 1', 'Calibre 2', 'Calibre 3', 'Jumbo'].map((nombre_categoria, index) => ({
     id_categoria: index + 1, nombre_categoria, estado: true,
@@ -88,7 +76,7 @@ export function createDemoSeed(): AppState {
   ]
   const permisos = moduleNames.map((nombre_permiso, index) => ({ id_permiso: index + 1, nombre_permiso }))
   const privilegios = actionNames.map((nombre_privilegio, index) => ({ id_privilegio: index + 1, nombre_privilegio }))
-  const permisos_privilegios = permisos.flatMap(permission => validActionNames[permission.nombre_permiso].map(name => ({
+  const permisos_privilegios = permisos.flatMap(permission => moduleActions[permission.nombre_permiso as keyof typeof moduleActions].map(name => ({
     id_permiso: permission.id_permiso,
     id_privilegio: privilegios.find(row => row.nombre_privilegio === name)!.id_privilegio,
   })))
