@@ -1,8 +1,5 @@
 import { pool } from '../config/db.js'
 import { resources } from '../resources.js'
-import bcrypt from 'bcryptjs'
-
-const BCRYPT_ROUNDS = 10
 
 function getResource(name) {
   return resources[name]
@@ -100,13 +97,6 @@ export async function getResourceById(request, response, next) {
   }
 }
 
-async function hashPasswordIfPresent(payload) {
-  if (payload.columns.includes('contrasenia')) {
-    const idx = payload.columns.indexOf('contrasenia')
-    payload.values[idx] = await bcrypt.hash(payload.values[idx], BCRYPT_ROUNDS)
-  }
-}
-
 export async function createResource(request, response, next) {
   const resource = getResource(request.params.resource)
   if (!resource) return resourceNotFound(response)
@@ -115,8 +105,11 @@ export async function createResource(request, response, next) {
   const payload = getPayload(resource, request.body, true)
   if (payload.error) return response.status(400).json({ error: payload.error })
 
-  if (resource.table === 'usuarios') {
-    await hashPasswordIfPresent(payload)
+  if (resource.table === 'usuarios' && payload.columns.includes('contrasenia')) {
+    const idx = payload.columns.indexOf('contrasenia')
+    if (!payload.values[idx] || String(payload.values[idx]).trim() === '') {
+      return response.status(400).json({ error: 'La contraseña es obligatoria.' })
+    }
   }
 
   const placeholders = payload.columns.map((_, index) => `$${index + 1}`).join(', ')
@@ -138,10 +131,6 @@ export async function updateResource(request, response, next) {
 
   const payload = getPayload(resource, request.body, false)
   if (payload.error) return response.status(400).json({ error: payload.error })
-
-  if (resource.table === 'usuarios') {
-    await hashPasswordIfPresent(payload)
-  }
 
   const assignments = payload.columns.map((column, index) => `${column} = $${index + 1}`).join(', ')
   try {

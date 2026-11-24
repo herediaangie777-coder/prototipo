@@ -28,6 +28,13 @@ export const resources = {
     ['id_permiso', 'id_privilegio'],
     { allowCreate: false, allowUpdate: false, allowDelete: false, filterColumns: ['id_permiso', 'id_privilegio'], orderColumns: ['id_permiso', 'id_privilegio'], defaultOrder: 'id_permiso, id_privilegio' }
   ),
+  roles_x_permisos: defineResource(
+    'roles_x_permisos',
+    'id_rol',
+    ['id_rol', 'id_permiso', 'id_privilegio'],
+    ['id_rol', 'id_permiso', 'id_privilegio'],
+    { allowCreate: false, allowUpdate: false, allowDelete: false, filterColumns: ['id_rol', 'id_permiso', 'id_privilegio'], orderColumns: ['id_rol', 'id_permiso', 'id_privilegio'], defaultOrder: 'id_rol DESC' }
+  ),
   usuarios: defineResource(
     'usuarios',
     'id_usuario',

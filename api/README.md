@@ -88,7 +88,7 @@ curl http://localhost:3000/api/health
 ### Listar con filtro y orden
 ```bash
 curl "http://localhost:3000/api/detalle_compra?id_compra=3"
-curl "http://localhost:3000/api/productos?estado=true&orden=nombre_categoria&dir=asc"
+curl "http://localhost:3000/api/categorias?estado=true&orden=nombre_categoria&dir=asc"
 ```
 
 ### Obtener por ID

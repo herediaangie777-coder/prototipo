@@ -342,6 +342,27 @@ JOIN (VALUES ('Medellín'), ('Envigado'), ('Itagüí'), ('Bello'), ('Sabaneta'),
              ('Rionegro'), ('Marinilla'), ('San Vicente'), ('La Ceja'), ('El Retiro'), ('Guarne')) AS m(nombre)
   ON d.nombre_departamento = 'Antioquia';
 
+-- Municipios para Caldas
+INSERT INTO public.municipios (id_departamento, nombre_municipio)
+SELECT d.id_departamento, m.nombre
+FROM public.departamentos d
+JOIN (VALUES ('Manizales'), ('Villamaría'), ('Chinchiná'), ('La Dorada'), ('Palestina')) AS m(nombre)
+  ON d.nombre_departamento = 'Caldas';
+
+-- Municipios para Cundinamarca
+INSERT INTO public.municipios (id_departamento, nombre_municipio)
+SELECT d.id_departamento, m.nombre
+FROM public.departamentos d
+JOIN (VALUES ('Bogotá'), ('Soacha'), ('Facatativá'), ('Zipaquirá'), ('Chía')) AS m(nombre)
+  ON d.nombre_departamento = 'Cundinamarca';
+
+-- Municipios para Risaralda
+INSERT INTO public.municipios (id_departamento, nombre_municipio)
+SELECT d.id_departamento, m.nombre
+FROM public.departamentos d
+JOIN (VALUES ('Pereira'), ('Dosquebradas'), ('Santa Rosa de Cabal'), ('La Virginia'), ('Marsella')) AS m(nombre)
+  ON d.nombre_departamento = 'Risaralda';
+
 INSERT INTO public.ubicaciones (nombre_ubicacion) VALUES ('Módulo 315'), ('Módulo 366');
 
 INSERT INTO public.categorias (nombre_categoria)

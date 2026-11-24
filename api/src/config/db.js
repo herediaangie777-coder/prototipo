@@ -11,13 +11,15 @@ function buildPoolConfig() {
     }
   }
 
+  const useSsl = process.env.DB_SSL === 'true'
+
   return {
     host: process.env.DB_HOST ?? 'localhost',
     port: Number(process.env.DB_PORT ?? 5432),
     database: process.env.DB_NAME,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    ssl: false,
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
   }
 }
 
@@ -38,7 +40,11 @@ const timestampOid = 1114
 
 const numericParser = (value) => (value === null ? null : Number(value))
 const dateParser = (value) => (value === null ? null : value)
-const timestampParser = (value) => (value === null ? null : value)
+const timestampParser = (value) => {
+  if (value === null) return null
+  // PostgreSQL envía 'YYYY-MM-DD HH:mm:ss[.ffffff]'; se convierte a 'YYYY-MM-DDTHH:mm:ss' sin 'Z'
+  return value.replace(' ', 'T').split('.')[0]
+}
 
 pg.types.setTypeParser(numericOid, numericParser)
 pg.types.setTypeParser(dateOid, dateParser)

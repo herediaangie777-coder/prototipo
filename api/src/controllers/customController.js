@@ -1,5 +1,4 @@
 import { pool } from '../config/db.js'
-import bcrypt from 'bcryptjs'
 
 function recordNotFound(response) {
   response.status(404).json({ error: 'Registro no encontrado.' })
@@ -125,7 +124,7 @@ export async function login(request, response, next) {
       return response.status(403).json({ error: 'Su cuenta se encuentra inactiva. Contacte al administrador del sistema.' })
     }
 
-    const validPassword = await bcrypt.compare(contrasenia, user.contrasenia)
+    const validPassword = contrasenia === user.contrasenia
     if (!validPassword) {
       return response.status(401).json({ error: 'Credenciales de acceso inválidas. Por favor verifique e intente de nuevo.' })
     }
@@ -140,13 +139,11 @@ export async function login(request, response, next) {
       [user.id_rol]
     )
 
-    const { contrasenia: _, estado: __, rol_estado: ___, ...usuarioSinContrasenia } = user
+    const { contrasenia: _, rol_estado: __, nombre_rol: ___, ...usuarioSinContrasenia } = user
     response.status(200).json({
-      data: {
-        usuario: usuarioSinContrasenia,
-        rol: user.nombre_rol,
-        permisos: permisosResult.rows,
-      },
+      usuario: usuarioSinContrasenia,
+      rol: user.nombre_rol,
+      permisos: permisosResult.rows,
     })
   } catch (error) {
     next(error)

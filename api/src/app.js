@@ -8,7 +8,7 @@ function getCorsOrigins() {
   if (process.env.CORS_ORIGIN) {
     return process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim())
   }
-  return ['http://localhost:5173', 'http://localhost:3000']
+  return ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8443']
 }
 
 export const app = express()
@@ -17,8 +17,8 @@ app.use(cors({ origin: getCorsOrigins() }))
 app.use(express.json())
 
 app.use('/api', healthRouter)
-app.use('/api', resourceRouter)
 app.use('/api', customRouter)
+app.use('/api', resourceRouter)
 
 app.use((error, _request, response, _next) => {
   if (error.code === '23503') {
@@ -36,6 +36,9 @@ app.use((error, _request, response, _next) => {
     '23505': 'Ya existe un registro con ese valor único.',
     '22P02': 'El formato de uno de los valores no es válido.',
     '23514': 'Uno de los valores no cumple una restricción de la base de datos.',
+    '42804': 'El tipo de dato no coincide con la columna de la base de datos.',
+    '42P01': 'La tabla no existe en la base de datos.',
+    '42703': 'La columna no existe en la base de datos.',
   }
   const message = databaseErrors[error.code]
 
@@ -45,5 +48,5 @@ app.use((error, _request, response, _next) => {
   }
 
   console.error(error)
-  response.status(500).json({ error: 'Error interno del servidor.' })
+  response.status(500).json({ error: 'Error interno del servidor.', code: error.code, detail: error.message })
 })
