@@ -1,5 +1,15 @@
 function getApiBaseUrl() {
-  return (import.meta.env.VITE_API_URL ?? 'http://localhost:3003').replace(/\/$/, '')
+  const raw = import.meta.env.VITE_API_URL ?? 'http://localhost:3003'
+  // Strip accidental markdown link syntax [text](url), surrounding quotes, and whitespace,
+  // then remove any trailing slash so paths concatenate cleanly.
+  const stripped = raw
+    .trim()
+    .replace(/^\[.*?\]\(/, '')  // remove [label]( prefix
+    .replace(/\)$/, '')          // remove ) suffix
+    .replace(/^["'`]+|["'`]+$/g, '') // remove surrounding quotes
+    .trim()
+    .replace(/\/$/, '')          // remove trailing slash
+  return stripped || 'http://localhost:3003'
 }
 
 export const isApiMode = true

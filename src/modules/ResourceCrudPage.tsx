@@ -314,7 +314,11 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
     fieldList.forEach(f => {
       if (f.uiOnly) return
       const val = formValues[f.key]
-      if (val === '' || val === null || val === undefined) return
+      if (val === '' || val === null || val === undefined) {
+        // sendNullIfEmpty: explicitly send null so DB can receive NULL (e.g. peso_unidad_kg for Fresca)
+        if (f.sendNullIfEmpty) payload[f.key] = null
+        return
+      }
       if (f.type === 'number') payload[f.key] = Number(val)
       else if (f.type === 'switch') payload[f.key] = Boolean(val)
       else payload[f.key] = val
@@ -327,7 +331,16 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
     const newErrors = validateForm(fieldList, values)
     if (Object.keys(newErrors).length) { setErrors(newErrors); return }
 
-    const payload = buildPayload(fieldList, values)
+    let payload = buildPayload(fieldList, values)
+    if (config.payloadTransform) {
+      payload = config.payloadTransform(payload, values)
+    }
+
+    // Extra cross-field validation (e.g. peso_unidad_kg required for Congelada)
+    if (config.extraValidate) {
+      const extraErrors = config.extraValidate(values)
+      if (Object.keys(extraErrors).length) { setErrors(prev => ({ ...prev, ...extraErrors })); return }
+    }
 
     try {
       if (modal === 'new') {

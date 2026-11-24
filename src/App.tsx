@@ -33,7 +33,7 @@ const paths = [
 ] as const
 
 function AppLayout() {
-  const { user, rol, permisos, logout, hasModuleAccess } = useAuth()
+  const { user, rol, permisos, logout, hasModuleAccess, isLoading } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const toast = useToast()
@@ -51,6 +51,10 @@ function AppLayout() {
     setLogoutConfirm(false)
     navigate('/login')
   }
+
+  // While the auth context is hydrating from sessionStorage, render nothing
+  // so we don't flash a /login redirect before state is ready.
+  if (isLoading) return null
 
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />
 

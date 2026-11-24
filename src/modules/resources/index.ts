@@ -38,6 +38,7 @@ export interface FieldConfig {
   uiOnly?: boolean
   dependsOn?: string
   filterKey?: string
+  sendNullIfEmpty?: boolean
 }
 
 export interface ColumnConfig {
@@ -69,6 +70,8 @@ export interface ResourceConfig {
   filterableColumns?: string[]
   subResources?: SubResourceConfig[]
   listEnhancer?: (rows: Row[]) => Promise<Row[]>
+  payloadTransform?: (payload: Record<string, unknown>, values: Record<string, unknown>) => Record<string, unknown>
+  extraValidate?: (values: Record<string, unknown>) => Record<string, string>
 }
 
 export interface SubResourceConfig {
@@ -192,8 +195,8 @@ export const productoResource: ResourceConfig = {
     { key: 'id_categoria', label: 'Categoría', type: 'select', required: true, fkEndpoint: 'categorias', fkLabelKey: 'nombre_categoria', fkValueKey: 'id_categoria' },
     { key: 'tipo_producto', label: 'Tipo de producto', type: 'select', required: true, options: [{ value: 'Fresca', label: 'Fresca' }, { value: 'Congelada', label: 'Congelada' }] },
     { key: 'presentacion', label: 'Presentación', type: 'text', required: true, maxLength: 40 },
-    { key: 'unidad_medida', label: 'Unidad de medida', type: 'select', required: true, options: [{ value: 'kg', label: 'kg' }, { value: 'bolsa', label: 'bolsa' }] },
-    { key: 'peso_unidad_kg', label: 'Peso por bolsa (kg)', type: 'number', min: 0.001, step: 0.001 },
+    // unidad_medida is derived from tipo_producto by payloadTransform; shown read-only
+    { key: 'peso_unidad_kg', label: 'Peso por bolsa (kg)', type: 'number', min: 0.001, step: 0.001, sendNullIfEmpty: true },
     { key: 'precio_compra', label: 'Precio de compra', type: 'number', required: true, min: 0, step: 0.01 },
     { key: 'precio_venta_detal', label: 'Precio venta detal', type: 'number', required: true, min: 0, step: 0.01 },
     { key: 'precio_venta_mayorista', label: 'Precio venta mayorista', type: 'number', required: true, min: 0, step: 0.01 },
@@ -215,6 +218,28 @@ export const productoResource: ResourceConfig = {
   ],
   defaultSort: { column: 'id_producto', direction: 'desc' },
   filterableColumns: ['id_categoria', 'tipo_producto', 'estado'],
+  extraValidate: (values) => {
+    if (String(values.tipo_producto) === 'Congelada') {
+      const kg = Number(values.peso_unidad_kg)
+      if (!kg || kg <= 0) return { peso_unidad_kg: 'El peso por bolsa es obligatorio para productos Congelados (debe ser > 0).' }
+    }
+    return {} as Record<string, string>
+  },
+  // Enforce the DB CHECK constraint: derive unidad_medida and handle peso_unidad_kg
+  payloadTransform: (payload, values) => {
+    const tipo = String(values.tipo_producto ?? '')
+    if (tipo === 'Fresca') {
+      payload.unidad_medida = 'kg'
+      payload.peso_unidad_kg = null  // must be NULL for Fresca
+    } else if (tipo === 'Congelada') {
+      payload.unidad_medida = 'bolsa'
+      // peso_unidad_kg must be > 0 for Congelada; keep whatever the user entered
+      if (!payload.peso_unidad_kg || Number(payload.peso_unidad_kg) <= 0) {
+        delete payload.peso_unidad_kg  // let the DB reject with a clear message
+      }
+    }
+    return payload
+  },
   listEnhancer: async (rows) => {
     try {
       const stockData = await api.getVStockProducto()

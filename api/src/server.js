@@ -11,7 +11,7 @@ async function startServer() {
       console.log(`API disponible en http://localhost:${port}`)
     })
   } catch (error) {
-    console.error('No fue posible conectar con PostgreSQL al iniciar.', error.message)
+    console.error('No fue posible conectar con PostgreSQL al iniciar.', error?.code ?? '', error?.message ?? error)
     await pool.end()
     process.exitCode = 1
   }

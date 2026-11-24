@@ -141,6 +141,20 @@ export function VentasPage() {
 
   const registrarVenta = async () => {
     if (!user || !selectedCliente || orderItems.length === 0) return
+
+    // Validate: all items must have a lote selected
+    const sinLote = orderItems.filter(item => !item.id_lote)
+    if (sinLote.length > 0) {
+      toast('error', 'Lote requerido', `Selecciona un lote para: ${sinLote.map(i => i.producto_nombre).join(', ')}.`)
+      return
+    }
+
+    // Validate: total must be > 0 for the pago
+    const montoRecibido = Number(pagoMonto) || total
+    if (montoRecibido <= 0) {
+      toast('error', 'Monto inválido', 'El monto recibido debe ser mayor a cero.')
+      return
+    }
     setSaving(true)
     try {
       const venta = await api.create<Row>('ventas', {
@@ -168,7 +182,7 @@ export function VentasPage() {
       const pagoPayload: Record<string, unknown> = {
         id_venta: ventaId,
         metodo_pago: pagoMetodo,
-        monto_recibido: Number(pagoMonto) || total,
+        monto_recibido: montoRecibido,
       }
       if (pagoReferencia.trim()) pagoPayload.referencia = pagoReferencia.trim()
       await api.create('pagos_venta', pagoPayload)
@@ -303,7 +317,7 @@ export function VentasPage() {
                     <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Subtotal: </span>
                     <strong style={{ fontSize: 16 }}>{cop(itemSubtotal)}</strong>
                   </div>
-                  <button className="btn-primary" disabled={!cantidad || Number(cantidad) <= 0} onClick={addToOrder}>
+                  <button className="btn-primary" disabled={!cantidad || Number(cantidad) <= 0 || (lotesForProduct.length > 0 && !selectedLote)} onClick={addToOrder}>
                     <Ic d={P.plus} size={14} /> Agregar a la orden
                   </button>
                 </div>

@@ -29,7 +29,10 @@ export function LoginPage() {
         throw new Error('Modo demo no implementado en esta página')
       }
       toast('success', 'Bienvenido', 'Sesión iniciada correctamente.')
-      navigate('/dashboard')
+      // Navigation is handled by AppLayout once auth state settles.
+      // Using replace so the browser back-button doesn't loop to /login.
+      const from = (location.state as { from?: string } | null)?.from
+      navigate(from && from !== '/login' ? from : '/', { replace: true })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error de acceso'
       setError(message)
