@@ -39,13 +39,15 @@ export interface FieldConfig {
   dependsOn?: string
   filterKey?: string
   sendNullIfEmpty?: boolean
+  autocomplete?: string
+  showWhen?: (values: Record<string, unknown>) => boolean
 }
 
 export interface ColumnConfig {
   key: string
   label: string
-  type?: 'text' | 'number' | 'currency' | 'date' | 'datetime' | 'boolean' | 'badge'
-  formatter?: (value: unknown, row: Row) => ReactNode
+  type?: 'text' | 'number' | 'currency' | 'date' | 'datetime' | 'boolean' | 'badge' | 'estado-produccion'
+  formatter?: (value: unknown, row: Row, fkOptions?: Record<string, Array<{ value: string | number; label: string }>>) => ReactNode
   width?: string
   fkField?: string
 }
@@ -87,6 +89,8 @@ export interface SubResourceConfig {
   customLoad?: (parentId: string | number) => Promise<Row[]>
 }
 
+export const CLIENTE_GENERAL_DOC = '222222222222'
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const cop = (v: unknown): string =>
   v != null && v !== ''
@@ -97,6 +101,17 @@ const boolLabel = (v: unknown): string => (v ? 'Activo' : 'Inactivo')
 
 const idFormatter = (prefix: string) => (v: unknown): string =>
   `${prefix}-${String(v).padStart(4, '0')}`
+
+/** "Fresa Fresca · Calibre 1 · Granel" composite display name */
+export function productoNombre(row: Row, fkOptions: Record<string, Array<{ value: string | number; label: string }>>): string {
+  const tipo = String(row.tipo_producto ?? '')
+  const catOpts = fkOptions['id_categoria'] ?? []
+  const catMatch = catOpts.find(o => String(o.value) === String(row.id_categoria))
+  const cat = catMatch ? catMatch.label : String(row.id_categoria ?? '')
+  const pres = String(row.presentacion ?? '')
+  if (!tipo && !cat && !pres) return '—'
+  return `Fresa ${tipo} · ${cat} · ${pres}`.replace(/^Fresa\s·/, '·').replace(/\s·\s$/, '')
+}
 
 // ── Resource configs ──────────────────────────────────────────────────────────
 
@@ -134,12 +149,12 @@ export const usuarioResource: ResourceConfig = {
     { key: 'estado', label: 'Estado', type: 'boolean' },
   ],
   fields: [
-    { key: 'nombre', label: 'Nombre', type: 'text', required: true, maxLength: 25 },
-    { key: 'apellido', label: 'Apellido', type: 'text', required: true, maxLength: 25 },
-    { key: 'correo', label: 'Correo', type: 'email', required: true, maxLength: 40 },
-    { key: 'telefono', label: 'Teléfono', type: 'text', maxLength: 15 },
+    { key: 'nombre', label: 'Nombre', type: 'text', required: true, maxLength: 25, autocomplete: 'off' },
+    { key: 'apellido', label: 'Apellido', type: 'text', required: true, maxLength: 25, autocomplete: 'off' },
+    { key: 'correo', label: 'Correo', type: 'email', required: true, maxLength: 40, autocomplete: 'off' },
+    { key: 'telefono', label: 'Teléfono', type: 'text', maxLength: 15, autocomplete: 'off' },
     { key: 'id_rol', label: 'Rol', type: 'select', required: true, fkEndpoint: 'roles', fkLabelKey: 'nombre_rol', fkValueKey: 'id_rol' },
-    { key: 'contrasenia', label: 'Contraseña', type: 'password', required: true, maxLength: 255, hiddenOnEdit: true },
+    { key: 'contrasenia', label: 'Contraseña', type: 'password', required: true, maxLength: 255, hiddenOnEdit: true, autocomplete: 'new-password' },
     { key: 'estado', label: 'Estado', type: 'switch', defaultValue: true },
   ],
   detailFields: [
@@ -181,7 +196,8 @@ export const productoResource: ResourceConfig = {
   title: 'Productos',
   singular: 'producto',
   columns: [
-    { key: 'presentacion', label: 'Producto' },
+    { key: 'presentacion', label: 'Producto',
+      formatter: (_v, row, options) => `Fresa ${String(row.tipo_producto ?? '')} · ${options?.id_categoria?.find(o => String(o.value) === String(row.id_categoria))?.label ?? row.id_categoria} · ${String(row.presentacion ?? '')}` },
     { key: 'id_categoria', label: 'Categoría', fkField: 'id_categoria' },
     { key: 'tipo_producto', label: 'Tipo' },
     { key: 'unidad_medida', label: 'Unidad' },
@@ -195,8 +211,9 @@ export const productoResource: ResourceConfig = {
     { key: 'id_categoria', label: 'Categoría', type: 'select', required: true, fkEndpoint: 'categorias', fkLabelKey: 'nombre_categoria', fkValueKey: 'id_categoria' },
     { key: 'tipo_producto', label: 'Tipo de producto', type: 'select', required: true, options: [{ value: 'Fresca', label: 'Fresca' }, { value: 'Congelada', label: 'Congelada' }] },
     { key: 'presentacion', label: 'Presentación', type: 'text', required: true, maxLength: 40 },
-    // unidad_medida is derived from tipo_producto by payloadTransform; shown read-only
-    { key: 'peso_unidad_kg', label: 'Peso por bolsa (kg)', type: 'number', min: 0.001, step: 0.001, sendNullIfEmpty: true },
+    // peso_unidad_kg only shows and is required when tipo_producto === 'Congelada'
+    { key: 'peso_unidad_kg', label: 'Peso por bolsa (kg)', type: 'number', required: true, min: 0.001, step: 0.001, sendNullIfEmpty: true,
+      showWhen: (values) => String(values.tipo_producto) === 'Congelada' },
     { key: 'precio_compra', label: 'Precio de compra', type: 'number', required: true, min: 0, step: 0.01 },
     { key: 'precio_venta_detal', label: 'Precio venta detal', type: 'number', required: true, min: 0, step: 0.01 },
     { key: 'precio_venta_mayorista', label: 'Precio venta mayorista', type: 'number', required: true, min: 0, step: 0.01 },
@@ -264,13 +281,14 @@ export const proveedorResource: ResourceConfig = {
     { key: 'correo', label: 'Correo' },
     { key: 'direccion', label: 'Dirección' },
     { key: 'id_municipio', label: 'Municipio', fkField: 'id_municipio' },
+    { key: 'id_departamento', label: 'Departamento', fkField: 'id_departamento' },
     { key: 'estado', label: 'Estado', type: 'boolean' },
   ],
   fields: [
-    { key: 'nombre_proveedor', label: 'Nombre', type: 'text', required: true, maxLength: 50 },
-    { key: 'telefono', label: 'Teléfono', type: 'text', maxLength: 15 },
-    { key: 'correo', label: 'Correo', type: 'email', maxLength: 30 },
-    { key: 'direccion', label: 'Dirección', type: 'text', maxLength: 40 },
+    { key: 'nombre_proveedor', label: 'Nombre', type: 'text', required: true, maxLength: 50, autocomplete: 'off' },
+    { key: 'telefono', label: 'Teléfono', type: 'text', maxLength: 15, autocomplete: 'off' },
+    { key: 'correo', label: 'Correo', type: 'email', maxLength: 30, autocomplete: 'off' },
+    { key: 'direccion', label: 'Dirección', type: 'text', maxLength: 40, autocomplete: 'off' },
     { key: 'id_departamento', label: 'Departamento', type: 'select', fkEndpoint: 'departamentos', fkLabelKey: 'nombre_departamento', fkValueKey: 'id_departamento', uiOnly: true },
     { key: 'id_municipio', label: 'Municipio', type: 'select', fkEndpoint: 'municipios', fkLabelKey: 'nombre_municipio', fkValueKey: 'id_municipio', dependsOn: 'id_departamento', filterKey: 'id_departamento' },
     { key: 'estado', label: 'Estado', type: 'switch', defaultValue: true },
@@ -281,6 +299,7 @@ export const proveedorResource: ResourceConfig = {
     { key: 'correo', label: 'Correo' },
     { key: 'direccion', label: 'Dirección' },
     { key: 'id_municipio', label: 'Municipio', fkField: 'id_municipio' },
+    { key: 'id_departamento', label: 'Departamento', fkField: 'id_departamento' },
     { key: 'estado', label: 'Estado', formatter: boolLabel },
   ],
   defaultSort: { column: 'id_proveedor', direction: 'desc' },
@@ -303,11 +322,11 @@ export const clienteResource: ResourceConfig = {
   ],
   fields: [
     { key: 'tipo_documento', label: 'Tipo de documento', type: 'select', required: true, options: [{ value: 'CC', label: 'CC' }, { value: 'CE', label: 'CE' }, { value: 'NIT', label: 'NIT' }, { value: 'PAS', label: 'PAS' }] },
-    { key: 'numero_documento', label: 'Número de documento', type: 'text', required: true, maxLength: 15 },
-    { key: 'nombre_cliente', label: 'Nombre / razón social', type: 'text', required: true, maxLength: 100 },
-    { key: 'telefono', label: 'Teléfono', type: 'text', maxLength: 15 },
-    { key: 'correo', label: 'Correo', type: 'email', maxLength: 100 },
-    { key: 'direccion', label: 'Dirección', type: 'text', maxLength: 120 },
+    { key: 'numero_documento', label: 'Número de documento', type: 'text', required: true, maxLength: 15, autocomplete: 'off' },
+    { key: 'nombre_cliente', label: 'Nombre / razón social', type: 'text', required: true, maxLength: 100, autocomplete: 'off' },
+    { key: 'telefono', label: 'Teléfono', type: 'text', maxLength: 15, autocomplete: 'off' },
+    { key: 'correo', label: 'Correo', type: 'email', maxLength: 100, autocomplete: 'off' },
+    { key: 'direccion', label: 'Dirección', type: 'text', maxLength: 120, autocomplete: 'off' },
     { key: 'id_departamento', label: 'Departamento', type: 'select', fkEndpoint: 'departamentos', fkLabelKey: 'nombre_departamento', fkValueKey: 'id_departamento', uiOnly: true },
     { key: 'id_municipio', label: 'Municipio', type: 'select', fkEndpoint: 'municipios', fkLabelKey: 'nombre_municipio', fkValueKey: 'id_municipio', dependsOn: 'id_departamento', filterKey: 'id_departamento' },
     { key: 'estado', label: 'Estado', type: 'switch', defaultValue: true },
@@ -447,12 +466,12 @@ export const produccionResource: ResourceConfig = {
   title: 'Producción',
   singular: 'producción',
   columns: [
-    { key: 'id_produccion', label: 'N°', formatter: idFormatter('P') },
+    { key: 'id_produccion', label: 'N°', formatter: idFormatter('OP') },
     { key: 'id_usuario', label: 'Usuario', fkField: 'id_usuario' },
     { key: 'id_lote_origen', label: 'Lote origen', fkField: 'id_lote_origen' },
     { key: 'fecha_produccion', label: 'Fecha', type: 'datetime' },
     { key: 'cantidad_a_procesar', label: 'Cantidad (kg)', type: 'number' },
-    { key: 'estado', label: 'Estado' },
+    { key: 'estado', label: 'Estado', type: 'estado-produccion' },
   ],
   fields: [
     { key: 'id_usuario', label: 'Usuario', type: 'select', required: true, fkEndpoint: 'usuarios', fkLabelKey: 'correo', fkValueKey: 'id_usuario' },
@@ -509,7 +528,13 @@ export const ventaResource: ResourceConfig = {
   singular: 'venta',
   columns: [
     { key: 'id_venta', label: 'N°', formatter: idFormatter('V') },
-    { key: 'numero_documento', label: 'Cliente', fkField: 'numero_documento' },
+    { key: 'numero_documento', label: 'Cliente', fkField: 'numero_documento',
+      formatter: (_v, row, fkOptions) => {
+        const opts = fkOptions?.['numero_documento'] ?? []
+        const match = opts.find(o => String(o.value) === String(row.numero_documento))
+        const nombre = match ? match.label : String(row.numero_documento ?? '—')
+        return nombre
+      } },
     { key: 'id_usuario', label: 'Usuario', fkField: 'id_usuario' },
     { key: 'tipo_venta', label: 'Tipo' },
     { key: 'fecha_venta', label: 'Fecha', type: 'datetime' },

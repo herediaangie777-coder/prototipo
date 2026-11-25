@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Ic, P, Field, Modal, ConfirmModal, Pagination, SearchBar, ViewBtn, TrashBtn } from '@/components/shared'
+import { Ic, P, Field, Modal, ConfirmModal, Pagination, SearchBar, ViewBtn, TrashBtn, FilterPopover } from '@/components/shared'
 import { useToast } from '@/components/toast'
 import { api, isApiMode } from '@/data/services/api'
 import { useAuth } from '@/data/services/authContext'
 import type { Row } from '@/modules/resources'
+import { formatDate } from '@/data/format'
 
 interface OrderItem {
   id_producto: number
@@ -71,6 +72,12 @@ export function VentasPage() {
   const [histQuery, setHistQuery] = useState('')
   const [histPage, setHistPage] = useState(1)
   const histPageSize = 10
+
+  // Historial filters
+  const [histTipoVenta, setHistTipoVenta] = useState('')
+  const [histEstado, setHistEstado] = useState('')
+  const [histFechaDesde, setHistFechaDesde] = useState('')
+  const [histFechaHasta, setHistFechaHasta] = useState('')
 
   const [detailRow, setDetailRow] = useState<Row | null>(null)
   const [detailLines, setDetailLines] = useState<Row[]>([])
@@ -252,12 +259,43 @@ export function VentasPage() {
 
   // ── Historial view ─────────────────────────────────────────────────────────
   if (view === 'historial') {
-    const filteredVentas = ventas.filter(v => !histQuery || String(v.numero_documento ?? '').toLowerCase().includes(histQuery.toLowerCase()))
+    const filteredVentas = ventas.filter(v => {
+      if (histQuery && !String(v.numero_documento ?? '').toLowerCase().includes(histQuery.toLowerCase())) return false
+      if (histTipoVenta && String(v.tipo_venta) !== histTipoVenta) return false
+      if (histEstado !== '' && String(v.estado) !== histEstado) return false
+      if (histFechaDesde && String(v.fecha_venta).split('T')[0] < histFechaDesde) return false
+      if (histFechaHasta && String(v.fecha_venta).split('T')[0] > histFechaHasta) return false
+      return true
+    })
     const shownVentas = filteredVentas.slice((histPage - 1) * histPageSize, histPage * histPageSize)
+    const histActiveFilters = [histTipoVenta, histEstado, histFechaDesde, histFechaHasta].filter(Boolean).length
+    const clearHistFilters = () => { setHistTipoVenta(''); setHistEstado(''); setHistFechaDesde(''); setHistFechaHasta(''); setHistPage(1) }
     return (
       <section>
         <div className="page-toolbar">
           <SearchBar placeholder="Buscar por cliente..." value={histQuery} onChange={v => { setHistQuery(v); setHistPage(1) }} />
+          <FilterPopover activeCount={histActiveFilters} onClear={clearHistFilters}>
+            <Field label="Tipo de venta">
+              <select className="select" value={histTipoVenta} onChange={e => { setHistTipoVenta(e.target.value); setHistPage(1) }}>
+                <option value="">Todos</option>
+                <option value="Detal">Detal</option>
+                <option value="Mayorista">Mayorista</option>
+              </select>
+            </Field>
+            <Field label="Estado">
+              <select className="select" value={histEstado} onChange={e => { setHistEstado(e.target.value); setHistPage(1) }}>
+                <option value="">Todos los estados</option>
+                <option value="true">Registrada</option>
+                <option value="false">Anulada</option>
+              </select>
+            </Field>
+            <Field label="Fecha desde">
+              <input className="input" type="date" value={histFechaDesde} onChange={e => { setHistFechaDesde(e.target.value); setHistPage(1) }} />
+            </Field>
+            <Field label="Fecha hasta">
+              <input className="input" type="date" value={histFechaHasta} onChange={e => { setHistFechaHasta(e.target.value); setHistPage(1) }} />
+            </Field>
+          </FilterPopover>
           <button className="btn-secondary" onClick={() => setView('pos')}>
             <Ic d={P.arrowR} size={14} style={{ transform: 'rotate(180deg)' }} /> Volver al POS
           </button>
@@ -275,9 +313,9 @@ export function VentasPage() {
                   {shownVentas.map(v => (
                     <tr key={String(v.id_venta)}>
                       <td><strong>V-{String(v.id_venta).padStart(4, '0')}</strong></td>
-                      <td>{String(v.numero_documento)}</td>
+                      <td><strong>{String(clientes.find(c => String(c.numero_documento) === String(v.numero_documento))?.nombre_cliente ?? '—')}</strong><small style={{ display: 'block', color: 'var(--text-muted)' }}>{String(v.numero_documento)}</small></td>
                       <td>{String(v.tipo_venta)}</td>
-                      <td>{String(v.fecha_venta ?? '').replace('T', ' ').split('.')[0] || '—'}</td>
+                      <td>{formatDate(v.fecha_venta)}</td>
                       <td>{v.total_pagar != null ? cop(Number(v.total_pagar)) : '—'}</td>
                       <td><span className={`badge ${v.estado ? 'badge-green' : 'badge-red'}`}>{v.estado ? 'Registrada' : 'Anulada'}</span></td>
                       <td>
@@ -285,7 +323,7 @@ export function VentasPage() {
                           <ViewBtn onClick={() => openDetail(v)} />
                           {canAnular && Boolean(v.estado) && (
                             <button className="btn-ghost" title="Anular venta" style={{ color: 'var(--action-trash)' }} onClick={() => { setAnularRow(v); setMotivo('') }}>
-                              <Ic d={P.close} size={15} />
+                              <Ic d={P.trash} size={15} /> <span>Anular venta</span>
                             </button>
                           )}
                         </div>
@@ -305,9 +343,9 @@ export function VentasPage() {
           {detailRow && (
             <>
               <div className="detail-grid">
-                <div className="detail-row"><span>Cliente</span><strong>{String(detailRow.numero_documento)}</strong></div>
+                <div className="detail-row"><span>Cliente</span><strong>{String(clientes.find(c => String(c.numero_documento) === String(detailRow.numero_documento))?.nombre_cliente ?? '—')}<small style={{ display: 'block', color: 'var(--text-muted)' }}>{String(detailRow.numero_documento)}</small></strong></div>
                 <div className="detail-row"><span>Tipo de venta</span><strong>{String(detailRow.tipo_venta)}</strong></div>
-                <div className="detail-row"><span>Fecha</span><strong>{String(detailRow.fecha_venta ?? '').replace('T', ' ').split('.')[0] || '—'}</strong></div>
+                <div className="detail-row"><span>Fecha</span><strong>{formatDate(detailRow.fecha_venta)}</strong></div>
                 <div className="detail-row"><span>IVA</span><strong>{detailRow.iva != null ? cop(Number(detailRow.iva)) : '—'}</strong></div>
                 <div className="detail-row"><span>Descuento</span><strong>{detailRow.descuento_total != null ? cop(Number(detailRow.descuento_total)) : '—'}</strong></div>
                 <div className="detail-row"><span>Total</span><strong>{detailRow.total_pagar != null ? cop(Number(detailRow.total_pagar)) : '—'}</strong></div>

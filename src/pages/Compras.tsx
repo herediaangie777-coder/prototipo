@@ -4,6 +4,7 @@ import { useToast } from '@/components/toast'
 import { api, isApiMode } from '@/data/services/api'
 import { useAuth } from '@/data/services/authContext'
 import type { Row } from '@/modules/resources'
+import { formatDate, formatId } from '@/data/format'
 
 const cop = (v: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v)
 const cop2 = (v: unknown) => v != null && v !== '' ? cop(Number(v)) : '—'
@@ -57,7 +58,7 @@ export function ComprasPage() {
   const [confirmDel, setConfirmDel] = useState<Row | null>(null)
 
   const canCreate = hasPermission('Compras', 'Registrar')
-  const canDelete = hasPermission('Compras', 'Editar')
+  const canDelete = hasPermission('Compras', 'Eliminar')
   const canView = hasPermission('Compras', 'Ver detalle') || hasPermission('Compras', 'Consultar')
 
   const loadData = useCallback(async () => {
@@ -202,9 +203,9 @@ export function ComprasPage() {
               <tbody>
                 {shown.map(c => (
                   <tr key={String(c.id_compra)}>
-                    <td><strong>C-{String(c.id_compra).padStart(4, '0')}</strong></td>
+                    <td><strong>{formatId('C', c.id_compra)}</strong></td>
                     <td>{provName(c.id_proveedor)}</td>
-                    <td>{String(c.fecha_compra ?? '').replace('T', ' ').split('.')[0] || '—'}</td>
+                    <td>{formatDate(c.fecha_compra)}</td>
                     <td>{cop2(c.total_compra)}</td>
                     <td><span className={`badge ${c.estado ? 'badge-green' : 'badge-red'}`}>{c.estado ? 'Recibida' : 'Anulada'}</span></td>
                     <td><div className="actions">
@@ -346,7 +347,8 @@ export function ComprasPage() {
           <>
             <div className="detail-grid">
               <div className="detail-row"><span>Proveedor</span><strong>{provName(detailRow.id_proveedor)}</strong></div>
-              <div className="detail-row"><span>Fecha</span><strong>{String(detailRow.fecha_compra ?? '').replace('T', ' ').split('.')[0] || '—'}</strong></div>
+              <div className="detail-row"><span>Fecha</span><strong>{formatDate(detailRow.fecha_compra)}</strong></div>
+              <div className="detail-row"><span>Observaciones</span><strong>{String(detailRow.observaciones ?? '—')}</strong></div>
               <div className="detail-row"><span>IVA</span><strong>{cop2(detailRow.iva)}</strong></div>
               <div className="detail-row"><span>Descuento</span><strong>{cop2(detailRow.descuento)}</strong></div>
               <div className="detail-row"><span>Total</span><strong>{cop2(detailRow.total_compra)}</strong></div>

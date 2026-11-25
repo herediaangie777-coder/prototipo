@@ -16,7 +16,9 @@ import {
 import { useToast } from '@/components/toast'
 import { api, isApiMode } from '@/data/services/api'
 import { useAuth } from '@/data/services/authContext'
+import { formatDate } from '@/data/format'
 import type { ResourceConfig, SubResourceConfig, ColumnConfig, FieldConfig, DetailFieldConfig, Row } from '@/modules/resources'
+import { CLIENTE_GENERAL_DOC } from '@/modules/resources'
 
 type FormValues = Record<string, string | number | boolean>
 type FormErrors = Record<string, string>
@@ -25,7 +27,7 @@ type FkOptionsMap = Record<string, FkOption[]>
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
-function resolveFk(value: unknown, fkField: string | undefined, fkOptions: FkOptionsMap): string | null {
+export function resolveFk(value: unknown, fkField: string | undefined, fkOptions: FkOptionsMap): string | null {
   if (!fkField) return null
   const options = fkOptions[fkField]
   if (!options) return null
@@ -37,9 +39,9 @@ function formatValue(value: unknown, column: ColumnConfig, row: Row, fkOptions: 
   if (value === null || value === undefined || value === '') return '—'
 
   const fkLabel = resolveFk(value, column.fkField, fkOptions)
-  if (fkLabel !== null) return fkLabel
+  if (fkLabel !== null && !column.formatter) return fkLabel
 
-  if (column.formatter) return column.formatter(value, row)
+  if (column.formatter) return column.formatter(value, row, fkOptions)
 
   switch (column.type) {
     case 'currency':
@@ -47,13 +49,18 @@ function formatValue(value: unknown, column: ColumnConfig, row: Row, fkOptions: 
     case 'number':
       return Number(value).toLocaleString('es-CO', { maximumFractionDigits: 2 })
     case 'date':
-      return String(value).split('T')[0]
+      return formatDate(value, false)
     case 'datetime':
-      return String(value).replace('T', ' ').split('.')[0]
+      return formatDate(value, true)
     case 'boolean':
       return <span className={`badge ${Boolean(value) ? 'badge-green' : 'badge-red'}`}>{Boolean(value) ? 'Activo' : 'Inactivo'}</span>
     case 'badge':
       return <span className={`badge ${Boolean(value) ? 'badge-green' : 'badge-red'}`}>{String(value)}</span>
+    case 'estado-produccion': {
+      const s = String(value)
+      const cls = s === 'Finalizada' ? 'badge-green' : s === 'Anulada' ? 'badge-red' : 'badge-amber'
+      return <span className={`badge ${cls}`}>{s}</span>
+    }
     default:
       return String(value)
   }
@@ -71,9 +78,9 @@ function formatDetailValue(value: unknown, field: DetailFieldConfig, row: Row, f
     case 'currency':
       return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(value))
     case 'date':
-      return String(value).split('T')[0]
+      return formatDate(value, false)
     case 'datetime':
-      return String(value).replace('T', ' ').split('.')[0]
+      return formatDate(value, true)
     case 'boolean':
       return value ? 'Activo' : 'Inactivo'
     default:
@@ -130,7 +137,7 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
 
   const canCreate = hasPermission(moduleName, 'Registrar')
   const canUpdate = hasPermission(moduleName, 'Editar')
-  const canDelete = hasPermission(moduleName, 'Editar')
+  const canDelete = hasPermission(moduleName, 'Eliminar')
   const canView = hasPermission(moduleName, 'Ver detalle') || hasPermission(moduleName, 'Consultar')
   const canChangeState = hasPermission(moduleName, 'Cambiar estado')
 
@@ -174,7 +181,7 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
     if (config.subResources) {
       config.subResources.forEach(sub => allFields.push(...sub.fields))
     }
-    const selectFields = allFields.filter(f => f.type === 'select' && f.fkEndpoint && !f.dependsOn)
+    const selectFields = allFields.filter(f => f.type === 'select' && f.fkEndpoint)
     const options: FkOptionsMap = {}
     for (const field of selectFields) {
       options[field.key] = await loadFkField(field)
@@ -239,10 +246,11 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
 
   // ── Form helpers ────────────────────────────────────────────────────────────
 
-  function getVisibleFields(fieldList: FieldConfig[], isEdit: boolean): FieldConfig[] {
+  function getVisibleFields(fieldList: FieldConfig[], isEdit: boolean, formValues?: FormValues): FieldConfig[] {
     return fieldList.filter(f => {
       if (isEdit && f.hiddenOnEdit) return false
       if (!isEdit && f.hiddenOnCreate) return false
+      if (f.showWhen && formValues) return f.showWhen(formValues as Record<string, unknown>)
       return true
     })
   }
@@ -327,7 +335,7 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
   }
 
   const save = async () => {
-    const fieldList = getVisibleFields(config.fields, modal === 'edit')
+    const fieldList = getVisibleFields(config.fields, modal === 'edit', values)
     const newErrors = validateForm(fieldList, values)
     if (Object.keys(newErrors).length) { setErrors(newErrors); return }
 
@@ -411,7 +419,7 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
   const handleSubSave = async () => {
     if (!subModal) return
     const sub = subModal.sub
-    const fieldList = getVisibleFields(sub.fields, subModal.mode === 'edit')
+    const fieldList = getVisibleFields(sub.fields, subModal.mode === 'edit', subValues)
     const newErrors = validateForm(fieldList, subValues)
     if (Object.keys(newErrors).length) { setSubErrors(newErrors); return }
 
@@ -528,8 +536,11 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                 </tr>
               </thead>
               <tbody>
-                {shown.map(row => (
-                  <tr key={String(row[config.key])} className={highlightedId === row[config.key] ? 'row-highlight' : undefined}>
+                {shown.map(row => {
+                  const rowKey = String(row[config.key])
+                  const isClienteGeneral = config.endpoint === 'clientes' && rowKey === CLIENTE_GENERAL_DOC
+                  return (
+                  <tr key={rowKey} className={highlightedId === row[config.key] ? 'row-highlight' : undefined}>
                     {config.columns.map(col => (
                       <td key={col.key} data-label={col.label}>{formatValue(row[col.key], col, row, fkOptions)}</td>
                     ))}
@@ -537,12 +548,13 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                       <div className="actions">
                         {canView && <ViewBtn onClick={() => openDetail(row)} />}
                         {canUpdate && <EditBtn onClick={() => openEdit(row)} />}
-                        {canDelete && <TrashBtn onClick={() => setConfirmDelete(row)} />}
-                        {canChangeState && hasEstado && <Toggle active={Boolean(row.estado)} onChange={() => toggleState(row)} />}
+                        {canDelete && !isClienteGeneral && <TrashBtn onClick={() => setConfirmDelete(row)} />}
+                        {canChangeState && hasEstado && !isClienteGeneral && <Toggle active={Boolean(row.estado)} onChange={() => toggleState(row)} />}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
                 {!shown.length && (
                   <tr><td colSpan={config.columns.length + 1} className="table-empty">No se encontraron {config.title.toLowerCase()} que coincidan con la búsqueda.</td></tr>
                 )}
@@ -556,7 +568,7 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
       {/* ── Form modal (new / edit) ─────────────────────────────────────────── */}
       <Modal open={modal === 'new' || modal === 'edit'} title={`${modal === 'new' ? 'Registrar' : 'Editar'} ${config.singular}`} onClose={() => setModal('')} wide>
         <div className="form-grid">
-          {getVisibleFields(config.fields, modal === 'edit').map(field => (
+          {getVisibleFields(config.fields, modal === 'edit', values).map(field => (
             <Field key={field.key} label={field.label}>
               {field.type === 'select' ? (
                 <>
@@ -568,13 +580,10 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                       const val = e.target.value
                       setValues(prev => ({ ...prev, [field.key]: val }))
                       setErrors(prev => ({ ...prev, [field.key]: '' }))
-                      // Handle dependent selects
                       const dependentFields = config.fields.filter(f => f.dependsOn === field.key)
                       dependentFields.forEach(dep => {
                         setValues(prev => ({ ...prev, [dep.key]: '' }))
-                        if (val && dep.filterKey) {
-                          reloadDependentOptions(dep, val)
-                        }
+                        if (val && dep.filterKey) reloadDependentOptions(dep, val)
                       })
                     }}
                   >
@@ -589,7 +598,15 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                 <Toggle active={Boolean(values[field.key])} onChange={() => setValues(prev => ({ ...prev, [field.key]: !prev[field.key] }))} />
               ) : field.type === 'password' ? (
                 <>
-                  <input className={`input ${errors[field.key] ? 'input-error' : ''}`} type="password" maxLength={field.maxLength} value={String(values[field.key] ?? '')} onChange={e => { setValues(prev => ({ ...prev, [field.key]: e.target.value })); setErrors(prev => ({ ...prev, [field.key]: '' })) }} />
+                  <input
+                    className={`input ${errors[field.key] ? 'input-error' : ''}`}
+                    type="password"
+                    maxLength={field.maxLength}
+                    autoComplete={field.autocomplete ?? 'new-password'}
+                    name={`fresas_${config.endpoint}_${field.key}`}
+                    value={String(values[field.key] ?? '')}
+                    onChange={e => { setValues(prev => ({ ...prev, [field.key]: e.target.value })); setErrors(prev => ({ ...prev, [field.key]: '' })) }}
+                  />
                   {errors[field.key] && <small className="field-error">{errors[field.key]}</small>}
                 </>
               ) : (
@@ -601,6 +618,8 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                     min={field.type === 'number' ? field.min : undefined}
                     max={field.type === 'number' ? field.max : undefined}
                     step={field.type === 'number' ? field.step : undefined}
+                    autoComplete={field.autocomplete ?? 'off'}
+                    name={`fresas_${config.endpoint}_${field.key}`}
                     value={String(values[field.key] ?? '')}
                     onChange={e => {
                       let val: string | number = e.target.value

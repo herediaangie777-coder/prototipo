@@ -21,6 +21,7 @@ export function RolesPage() {
   const { hasPermission, hasModuleAccess } = useAuth()
   const toast = useToast()
   const [data, setData] = useState<Array<{ id_rol: number; nombre_rol: string; estado: boolean }>>([])
+  const [usuarios, setUsuarios] = useState<Array<{ id_usuario: number; id_rol: number }>>([])
   const [permisos, setPermisos] = useState<Array<{ id_permiso: number; nombre_permiso: string }>>([])
   const [permisosPrivilegios, setPermisosPrivilegios] = useState<Array<{ id_permiso: number; id_privilegio: number }>>([])
   const [privilegios, setPrivilegios] = useState<Array<{ id_privilegio: number; nombre_privilegio: string }>>([])
@@ -38,29 +39,33 @@ export function RolesPage() {
   const [roleState, setRoleState] = useState(true)
   const [selectedPerms, setSelectedPerms] = useState<Array<{ id_permiso: number; id_privilegio: number }>>([])
   const [confirm, setConfirm] = useState<number | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
   const canCreate = hasPermission('Roles y permisos', 'Registrar')
   const canUpdate = hasPermission('Roles y permisos', 'Editar')
   const canView = hasPermission('Roles y permisos', 'Ver detalle')
   const canChangeState = hasPermission('Roles y permisos', 'Cambiar estado')
+  const canDelete = hasPermission('Roles y permisos', 'Eliminar')
 
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [rolesRes, permisosRes, ppRes, privRes, rxpRes] = await Promise.all([
+      const [rolesRes, permisosRes, ppRes, privRes, rxpRes, usersRes] = await Promise.all([
         api.list<{ id_rol: number; nombre_rol: string; estado: boolean }>('roles'),
         api.list<{ id_permiso: number; nombre_permiso: string }>('permisos'),
         api.list<{ id_permiso: number; id_privilegio: number }>('permisos_privilegios'),
         api.list<{ id_privilegio: number; nombre_privilegio: string }>('privilegios'),
         api.list<{ id_rol: number; id_permiso: number; id_privilegio: number }>('roles_x_permisos'),
+        api.list<{ id_usuario: number; id_rol: number }>('usuarios'),
       ])
       setData(rolesRes)
       setPermisos(permisosRes)
       setPermisosPrivilegios(ppRes)
       setPrivilegios(privRes)
       setRolesXPermisos(rxpRes)
+      setUsuarios(usersRes)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'No se pudo conectar con el servidor'
       setError(message)
@@ -205,7 +210,7 @@ export function RolesPage() {
                   return (
                     <tr key={item.id_rol} className={highlightedId === item.id_rol ? 'row-highlight' : undefined}>
                       <td data-label="Nombre"><strong>{item.nombre_rol}</strong></td>
-                      <td data-label="Usuarios">0</td>
+                      <td data-label="Usuarios">{usuarios.filter(u => u.id_rol === item.id_rol).length}</td>
                       <td data-label="Permisos activos"><div className="progress"><span style={{ width: `${totalValid ? count / totalValid * 100 : 0}%` }} /></div>{count}/{totalValid}</td>
                       <td data-label="Estado"><span className={`badge ${item.estado ? 'badge-green' : 'badge-red'}`}>{item.estado ? 'Activo' : 'Inactivo'}</span></td>
                       <td data-label="Acciones">
@@ -213,6 +218,7 @@ export function RolesPage() {
                           {canView && <ViewBtn onClick={() => open(item, false)} />}
                           {canUpdate && <EditBtn onClick={() => open(item, true)} />}
                           {canChangeState && item.id_rol !== 1 && <Toggle active={item.estado} onChange={() => setConfirm(item.id_rol)} />}
+                          {canDelete && item.id_rol !== 1 && <TrashBtn onClick={() => setConfirmDelete(item.id_rol)} />}
                         </div>
                       </td>
                     </tr>
@@ -257,6 +263,13 @@ export function RolesPage() {
           .then(() => { toast('success', 'Estado actualizado', 'El estado del rol fue actualizado.'); loadData() })
           .catch(err => toast('error', 'Error al cambiar estado', err instanceof Error ? err.message : 'Error'))
         setConfirm(null)
+      }} />}
+      {canDelete && <ConfirmModal open={confirmDelete !== null} title="¿Eliminar rol?" message="Esta acción no se puede deshacer." actionLabel="Eliminar" onCancel={() => setConfirmDelete(null)} onConfirm={() => {
+        if (confirmDelete === null) return
+        api.deleteRole(confirmDelete)
+          .then(() => { toast('success', 'Rol eliminado', 'El rol fue eliminado correctamente.'); loadData() })
+          .catch(err => toast('error', 'No se pudo eliminar', err instanceof Error ? err.message : 'Error'))
+        setConfirmDelete(null)
       }} />}
     </section>
   )
