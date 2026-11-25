@@ -55,7 +55,7 @@ export function LoginPage() {
         <div className="brand-mark">🍓</div>
         <div className="brand-title">Fresas del Oriente</div>
         <p className="muted">Comercializadora · Plaza Minorista</p>
-        {isApiMode && <p className="muted" style={{ fontSize: 12, color: 'var(--primary)' }}>Modo API: Conectado a la base de datos</p>}
+        {isApiMode && <p className="muted" style={{ fontSize: 12 }}>Sistema de gestión en línea</p>}
         <h1>Iniciar sesión</h1>
         <Field label="Correo electrónico">
           <input className={`input ${error ? 'input-error' : ''}`} type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} disabled={loading} />

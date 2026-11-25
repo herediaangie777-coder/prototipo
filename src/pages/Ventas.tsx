@@ -146,6 +146,16 @@ export function VentasPage() {
     if (!anularRow || !motivo.trim()) return
     setAnulando(true)
     try {
+      // Restore lote stock before marking as anulada
+      try {
+        const lineas = await api.list<Row>('detalle_venta', { id_venta: String(anularRow.id_venta) })
+        for (const linea of lineas) {
+          const loteData = await api.getById<Row>('lotes', linea.id_lote as number)
+          const restored = Number(loteData.cantidad_disponible) + Number(linea.cantidad)
+          await api.update('lotes', linea.id_lote as number, { cantidad_disponible: restored })
+        }
+      } catch { /* non-fatal: annulment still proceeds */ }
+
       await api.update('ventas', anularRow.id_venta as number, {
         estado: false,
         motivo_anulacion: motivo.trim(),
@@ -221,6 +231,12 @@ export function VentasPage() {
           id_venta: ventaId, id_producto: item.id_producto, id_lote: item.id_lote,
           cantidad: item.cantidad, unidad_medida: item.unidad_medida, precio_unitario: item.precio_unitario,
         })
+        // Deduct stock from lote
+        try {
+          const loteData = await api.getById<Row>('lotes', item.id_lote)
+          const nuevo = Math.max(0, Number(loteData.cantidad_disponible) - item.cantidad)
+          await api.update('lotes', item.id_lote, { cantidad_disponible: nuevo })
+        } catch { /* non-fatal: stock update failure does not roll back the sale */ }
       }
       const pagoPayload: Record<string, unknown> = { id_venta: ventaId, metodo_pago: pagoMetodo, monto_recibido: montoRecibido }
       if (pagoReferencia.trim()) pagoPayload.referencia = pagoReferencia.trim()

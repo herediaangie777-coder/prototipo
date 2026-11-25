@@ -912,3 +912,34 @@ h1,h2,h3,h4,h5,h6 { font-family: 'Outfit', sans-serif; }
 .action-finish:focus-visible { outline: 2px solid var(--semantic-positive); outline-offset: 2px; }
 @media (max-width: 768px) { .permission-cards { grid-template-columns: minmax(0, 1fr); } }
 .purchase-detail-line .cell-sub, .ticket-item small, .ticket-header span { white-space: nowrap; }
+
+/* ── Spinner / loading state ───────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse-bg {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .45; }
+}
+.loading-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 48px 24px; color: var(--text-muted); font-size: 13px;
+}
+.loading-state svg { animation: spin .9s linear infinite; color: var(--primary); opacity: .7; }
+.loading-state p  { margin: 0; }
+
+/* Skeleton shimmer — wrap any placeholder with .skeleton */
+.skeleton {
+  border-radius: 7px; background: var(--border);
+  animation: pulse-bg 1.4s ease-in-out infinite;
+  display: block;
+}
+
+/* error banner */
+.error-banner {
+  display: flex; align-items: center; gap: 10px; flex: 1;
+  padding: 9px 14px; border-radius: 9px;
+  background: var(--danger-bg); color: var(--danger-text); font-size: 12px;
+}
+.error-banner span { flex: 1; }
+
+/* stat card (used in Dashboard welcome card) */
+.stat-card { display: flex; align-items: center; gap: 14px; padding: 4px 0; }

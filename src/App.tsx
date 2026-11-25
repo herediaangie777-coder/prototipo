@@ -75,7 +75,7 @@ function AppLayout() {
         <nav>{visible.map(([path, label, icon]) => <Link key={path} to={path} onClick={() => setMobileOpen(false)} className={`nav-item ${location.pathname === path ? 'active' : ''}`}><Ic d={icon} size={16} /><span>{label}</span></Link>)}</nav>
         <div className="sidebar-user"><span className="avatar">{initials}</span><div><strong>{fullname}</strong><small>{roleName}</small></div><button className="link-button sidebar-logout" onClick={() => setLogoutConfirm(true)}><Ic d={P.logout} size={15} /> Cerrar sesión</button></div>
       </aside>
-      <main className="main-content"><header className="top-header"><button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Abrir menú">≡</button><div><h1>{activeTitle}</h1><p>{isApiMode ? 'Conectado a la API REST · Base de datos PostgreSQL' : 'Modo demo local · Datos en localStorage'}</p></div>{isApiMode && <NotificationBell />}</header>
+      <main className="main-content"><header className="top-header"><button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Abrir menú">≡</button><div><h1>{activeTitle}</h1></div>{isApiMode && <NotificationBell />}</header>
         <Routes>
           <Route path="/dashboard" element={hasModuleAccess('Dashboard') ? <DashboardPage /> : <Navigate to={homePath} replace />} />
           <Route path="/roles" element={hasModuleAccess('Roles y permisos') ? <RolesPage /> : <Navigate to={homePath} replace />} />
