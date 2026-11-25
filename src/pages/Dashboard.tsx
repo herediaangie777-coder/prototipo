@@ -212,6 +212,51 @@ export function DashboardPage() {
             ))}
           </div>
 
+          {/* ── Stock breakdown: Fresca vs Congelada ─────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
+            {([
+              { tipo: 'Fresca', kg: stockFresca, icon: '🍓', bg: 'var(--kpi-sales-bg)', accent: 'var(--kpi-sales-accent)' },
+              { tipo: 'Congelada', kg: stockCongelada, icon: '🧊', bg: 'var(--kpi-purchases-bg)', accent: 'var(--kpi-purchases-accent)' },
+            ] as const).map(s => (
+              <div key={s.tipo} className="kpi-card" style={{ background: s.bg, borderColor: s.accent }}>
+                <div className="stat-card">
+                  <span style={{ fontSize: 28 }}>{s.icon}</span>
+                  <div>
+                    <strong style={{ fontSize: 22, color: s.accent }}>{s.kg.toLocaleString('es-CO')} kg</strong>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, fontWeight: 600, color: 'var(--text-head)' }}>Fresa {s.tipo}</p>
+                    <small className="muted" style={{ fontSize: 11 }}>Stock vendible activo</small>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* ── 2-day fresh-strawberry alert ─────────────────────────────────── */}
+          {(() => {
+            const twoDayFresh = lotes.filter(l =>
+              l.estado !== false && Number(l.cantidad_disponible) > 0 &&
+              productos.find(p => p.id_producto === l.id_producto && String(p.tipo_producto) === 'Fresca') &&
+              String(l.fecha_vencimiento) <= addDays(new Date(), 2)
+            )
+            if (!twoDayFresh.length) return null
+            return (
+              <div style={{ marginTop: 16, padding: '14px 18px', borderRadius: 10, background: 'var(--amber-light)', border: '1px solid var(--amber)', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <Ic d={P.alert} size={20} style={{ color: 'var(--amber-text)', flexShrink: 0, marginTop: 2 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <strong style={{ color: 'var(--amber-text)', fontSize: 13 }}>
+                    ⚠ {twoDayFresh.length} lote{twoDayFresh.length !== 1 ? 's' : ''} de fresa fresca {twoDayFresh.length === 1 ? 'cumple' : 'cumplen'} 2 días de vida útil
+                  </strong>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--amber-text)', overflowWrap: 'break-word' }}>
+                    {twoDayFresh.map(l => `${String(l.numero_lote)} (${Number(l.cantidad_disponible)} kg, vence ${String(l.fecha_vencimiento)})`).join(' · ')}
+                  </p>
+                  <button className="btn-secondary" style={{ marginTop: 8, fontSize: 11, padding: '5px 10px' }} onClick={() => navigate('/produccion')}>
+                    Iniciar proceso de congelado →
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
             <div className="card" style={{ padding: 24 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
