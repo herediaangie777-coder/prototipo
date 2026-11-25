@@ -548,8 +548,8 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                       <div className="actions">
                         {canView && <ViewBtn onClick={() => openDetail(row)} />}
                         {canUpdate && <EditBtn onClick={() => openEdit(row)} />}
-                        {canDelete && !isClienteGeneral && <TrashBtn onClick={() => setConfirmDelete(row)} />}
-                        {canChangeState && hasEstado && !isClienteGeneral && <Toggle active={Boolean(row.estado)} onChange={() => toggleState(row)} />}
+                        {canDelete && !isClienteGeneral && <span className="row-action-delete"><TrashBtn onClick={() => setConfirmDelete(row)} /></span>}
+                        {canChangeState && hasEstado && !isClienteGeneral && <span className="row-action-state"><Toggle active={Boolean(row.estado)} onChange={() => toggleState(row)} /></span>}
                       </div>
                     </td>
                   </tr>
