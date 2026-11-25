@@ -52,8 +52,7 @@ export function LoginPage() {
   return (
     <main className="login-page">
       <div className="login-card">
-        <div className="brand-mark">🍓</div>
-        <div className="brand-title">Fresas del Oriente</div>
+        <img className="login-brand-logo" src="/fresas-logo.svg" alt="Fresas del Oriente" />
         <p className="muted">Comercializadora · Plaza Minorista</p>
         {isApiMode && <p className="muted" style={{ fontSize: 12 }}>Sistema de gestión en línea</p>}
         <h1>Iniciar sesión</h1>

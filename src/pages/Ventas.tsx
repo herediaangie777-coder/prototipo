@@ -323,7 +323,7 @@ export function VentasPage() {
                           <ViewBtn onClick={() => openDetail(v)} />
                           {canAnular && Boolean(v.estado) && (
                             <button className="btn-ghost" title="Anular venta" style={{ color: 'var(--action-trash)' }} onClick={() => { setAnularRow(v); setMotivo('') }}>
-                              <Ic d={P.trash} size={15} /> <span>Anular venta</span>
+                              <Ic d={P.ban} size={15} /> <span>Anular venta</span>
                             </button>
                           )}
                         </div>

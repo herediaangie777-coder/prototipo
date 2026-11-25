@@ -224,7 +224,7 @@ export function ComprasPage() {
 
       {/* ── Registrar compra modal ──────────────────────────────────────────── */}
       <Modal open={modal} title="Registrar compra" onClose={() => setModal(false)} wide>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+        <div className="purchase-vendor-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
           <Field label="Proveedor">
             <select className="select" value={selProveedor} onChange={e => setSelProveedor(e.target.value)}>
               <option value="">Seleccione...</option>
@@ -239,7 +239,7 @@ export function ComprasPage() {
           </Field>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: 16, alignItems: 'start' }}>
+        <div className="purchase-modal-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 260px', gap: 16, alignItems: 'start' }}>
           {/* ── Left: product lines with lote fields ─────────────────────────── */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -254,7 +254,7 @@ export function ComprasPage() {
                 {lines.map((line, idx) => (
                   <div key={idx} style={{ padding: 14, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface-subtle)' }}>
                     {/* Product row */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.8fr 0.8fr 0.8fr auto', gap: 8, alignItems: 'end' }}>
+                    <div className="purchase-product-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 2fr) repeat(3, minmax(95px, .8fr)) auto', gap: 8, alignItems: 'end' }}>
                       <Field label="Producto">
                         <select className="select" value={String(line.id_producto)} onChange={e => updateLine(idx, 'id_producto', Number(e.target.value))}>
                           <option value="">Seleccione...</option>
@@ -279,7 +279,7 @@ export function ComprasPage() {
                     {/* Lote sub-section */}
                     <div style={{ marginTop: 10, padding: 10, border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--card)' }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Lote — Registrado con la compra</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 8, alignItems: 'end' }}>
+                      <div className="purchase-lot-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 1fr) repeat(4, minmax(150px, 1fr))', gap: 8, alignItems: 'end' }}>
                         <Field label="N° lote">
                           <input className="input" value={line.lote_numero} onChange={e => updateLine(idx, 'lote_numero', e.target.value)} />
                         </Field>
@@ -316,7 +316,7 @@ export function ComprasPage() {
           </div>
 
           {/* ── Right: Resumen panel (sticky) ────────────────────────────────── */}
-          <div style={{ position: 'sticky', top: 0 }}>
+          <div className="purchase-summary-column" style={{ position: 'sticky', top: 0 }}>
             <div style={{ padding: 16, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--card)' }}>
               <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700 }}>Resumen</h3>
               <div style={{ display: 'grid', gap: 10 }}>
