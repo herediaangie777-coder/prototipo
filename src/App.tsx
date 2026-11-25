@@ -71,7 +71,7 @@ function AppLayout() {
     <div className="app-shell">
       {mobileOpen && <button className="sidebar-backdrop" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
       <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
-        <div className="sidebar-brand"><img src="/brand-logo.png" alt="Fresas del Oriente" /><button className="theme-toggle" onClick={() => setTheme(v => v === 'light' ? 'dark' : 'light')} aria-label="Cambiar tema">◐</button></div>
+        <div className="sidebar-brand"><span>🍓</span><strong>Fresas del Oriente</strong><button className="theme-toggle" onClick={() => setTheme(v => v === 'light' ? 'dark' : 'light')} aria-label="Cambiar tema">◐</button></div>
         <nav>{visible.map(([path, label, icon]) => <Link key={path} to={path} onClick={() => setMobileOpen(false)} className={`nav-item ${location.pathname === path ? 'active' : ''}`}><Ic d={icon} size={16} /><span>{label}</span></Link>)}</nav>
         <div className="sidebar-user"><span className="avatar">{initials}</span><div><strong>{fullname}</strong><small>{roleName}</small></div><button className="link-button sidebar-logout" onClick={() => setLogoutConfirm(true)}><Ic d={P.logout} size={15} /> Cerrar sesión</button></div>
       </aside>

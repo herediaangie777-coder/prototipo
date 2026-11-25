@@ -217,8 +217,8 @@ export function RolesPage() {
                         <div className="actions">
                           {canView && <ViewBtn onClick={() => open(item, false)} />}
                           {canUpdate && <EditBtn onClick={() => open(item, true)} />}
-                          {canChangeState && item.id_rol !== 1 && <Toggle active={item.estado} onChange={() => setConfirm(item.id_rol)} />}
                           {canDelete && item.id_rol !== 1 && <TrashBtn onClick={() => setConfirmDelete(item.id_rol)} />}
+                          {canChangeState && item.id_rol !== 1 && <Toggle active={item.estado} onChange={() => setConfirm(item.id_rol)} />}
                         </div>
                       </td>
                     </tr>
