@@ -60,7 +60,7 @@ function AppLayout() {
 
   const homePath = getHomePath(permisos, user)
 
-  const roleName = rol || (user.id_rol === 1 ? 'Administrador' : user.id_rol === 2 ? 'Vendedor' : 'Operario')
+  const roleName = rol || (user.id_rol === 1 ? 'Super Administrador' : user.id_rol === 2 ? 'Vendedor' : 'Operario')
   const fullname = `${user.nombre} ${user.apellido}`
   const initials = `${user.nombre[0] ?? ''}${user.apellido[0] ?? ''}`.toUpperCase()
   const activeTitle = paths.find(([path]) => path === location.pathname)?.[1] ?? ''

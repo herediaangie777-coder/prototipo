@@ -67,7 +67,7 @@ export function DashboardPage() {
   }, [])
 
   if (!hasModuleAccess('Dashboard')) return null
-  const roleName = rol || (user?.id_rol === 1 ? 'Administrador' : user?.id_rol === 2 ? 'Vendedor' : 'Operario')
+  const roleName = rol || (user?.id_rol === 1 ? 'Super Administrador' : user?.id_rol === 2 ? 'Vendedor' : 'Operario')
 
   // ── Dates ─────────────────────────────────────────────────────────────────
   const todayStr = new Date().toISOString().split('T')[0]

@@ -980,7 +980,7 @@ export function ProductionPage() {
   const canView = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Ver detalle')
   const canCreate = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Registrar')
   const canEdit = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Editar')
-  const canFinish = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Finalizar')
+  const canFinish = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Congelar')
   const canCancel = user?.id_rol === 1 || canModuleAction(state, user?.id_rol ?? -1, 'Producción', 'Anular')
   const [open, setOpen] = useState(false); const [lotId, setLotId] = useState(() => sessionStorage.getItem('fresas-production-lot') ?? '')
   const [quantity, setQuantity] = useState(''); const [quantityUnit, setQuantityUnit] = useState<'kg' | 'g'>('kg')

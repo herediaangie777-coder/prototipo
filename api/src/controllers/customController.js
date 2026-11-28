@@ -1,4 +1,7 @@
 import { pool } from '../config/db.js'
+import bcrypt from 'bcryptjs'
+import { createAuthToken } from '../auth/jwt.js'
+import { isLocalDevelopment } from '../middleware/authMiddleware.js'
 
 function recordNotFound(response) {
   response.status(404).json({ error: 'Registro no encontrado.' })
@@ -95,9 +98,9 @@ export async function deleteRole(request, response, next) {
 }
 
 export async function login(request, response, next) {
-  const { correo, contrasenia } = request.body
+  const { correo, contrasenia } = request.body ?? {}
 
-  if (!correo || !contrasenia) {
+  if (typeof correo !== 'string' || typeof contrasenia !== 'string' || !correo || !contrasenia) {
     return response.status(400).json({ error: 'Correo y contraseña son obligatorios.' })
   }
 
@@ -124,7 +127,10 @@ export async function login(request, response, next) {
       return response.status(403).json({ error: 'Su cuenta se encuentra inactiva. Contacte al administrador del sistema.' })
     }
 
-    const validPassword = contrasenia === user.contrasenia
+    const isBcryptHash = /^\$2[aby]\$/.test(user.contrasenia)
+    const validPassword = isBcryptHash
+      ? await bcrypt.compare(contrasenia, user.contrasenia)
+      : isLocalDevelopment(request) && contrasenia === user.contrasenia
     if (!validPassword) {
       return response.status(401).json({ error: 'Credenciales de acceso inválidas. Por favor verifique e intente de nuevo.' })
     }
@@ -140,10 +146,16 @@ export async function login(request, response, next) {
     )
 
     const { contrasenia: _, rol_estado: __, nombre_rol: ___, ...usuarioSinContrasenia } = user
+    const auth = process.env.JWT_SECRET
+      ? createAuthToken(user)
+      : process.env.NODE_ENV === 'development'
+        ? { token: null, expiresIn: null }
+        : createAuthToken(user)
     response.status(200).json({
       usuario: usuarioSinContrasenia,
       rol: user.nombre_rol,
       permisos: permisosResult.rows,
+      ...auth,
     })
   } catch (error) {
     next(error)
@@ -178,6 +190,32 @@ export async function getVLotes(request, response, next) {
     }
     sql += ' ORDER BY id_lote DESC'
     const result = await pool.query(sql, values)
+    response.status(200).json({ data: result.rows })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function getProductLots(request, response, next) {
+  try {
+    const productResult = await pool.query(
+      'SELECT id_producto FROM public.productos WHERE id_producto = $1',
+      [request.params.id]
+    )
+    if (productResult.rowCount === 0) return recordNotFound(response)
+
+    const result = await pool.query(
+      `SELECT vl.*, dc.id_compra, dp.id_produccion, pr.id_lote_origen
+       FROM public.v_lotes vl
+       LEFT JOIN public.detalle_produccion dp ON dp.id_detalle_produccion = vl.id_detalle_produccion
+       LEFT JOIN public.produccion pr ON pr.id_produccion = dp.id_produccion
+       LEFT JOIN public.lotes lote_origen ON lote_origen.id_lote = pr.id_lote_origen
+       LEFT JOIN public.detalle_compra dc
+         ON dc.id_detalle_compra = COALESCE(vl.id_detalle_compra, lote_origen.id_detalle_compra)
+       WHERE vl.id_producto = $1
+       ORDER BY vl.id_lote DESC`,
+      [request.params.id]
+    )
     response.status(200).json({ data: result.rows })
   } catch (error) {
     next(error)

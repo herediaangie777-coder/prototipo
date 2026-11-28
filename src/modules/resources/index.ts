@@ -175,8 +175,9 @@ export const categoriaResource: ResourceConfig = {
   title: 'Categorías',
   singular: 'categoría',
   columns: [
-    { key: 'nombre_categoria', label: 'Categoría' },
-    { key: 'estado', label: 'Estado', type: 'boolean' },
+    { key: 'nombre_categoria', label: 'Categoría', width: '55%' },
+    { key: 'productos_count', label: 'Productos asociados', type: 'number', width: '20%' },
+    { key: 'estado', label: 'Estado', type: 'boolean', width: '140px' },
   ],
   fields: [
     { key: 'nombre_categoria', label: 'Nombre', type: 'text', required: true, maxLength: 20 },
@@ -184,10 +185,23 @@ export const categoriaResource: ResourceConfig = {
   ],
   detailFields: [
     { key: 'nombre_categoria', label: 'Nombre' },
+    { key: 'productos_count', label: 'Productos asociados', type: 'number' },
     { key: 'estado', label: 'Estado', formatter: boolLabel },
   ],
   defaultSort: { column: 'id_categoria', direction: 'desc' },
   filterableColumns: ['nombre_categoria', 'estado'],
+  listEnhancer: async rows => {
+    const products = await api.list<Row>('productos')
+    const productCounts = new Map<number, number>()
+    products.forEach(product => {
+      const categoryId = Number(product.id_categoria)
+      productCounts.set(categoryId, (productCounts.get(categoryId) ?? 0) + 1)
+    })
+    return rows.map(row => ({
+      ...row,
+      productos_count: productCounts.get(Number(row.id_categoria)) ?? 0,
+    }))
+  },
 }
 
 export const productoResource: ResourceConfig = {
@@ -324,6 +338,7 @@ export const clienteResource: ResourceConfig = {
     { key: 'tipo_documento', label: 'Tipo de documento', type: 'select', required: true, options: [{ value: 'CC', label: 'CC' }, { value: 'CE', label: 'CE' }, { value: 'NIT', label: 'NIT' }, { value: 'PAS', label: 'PAS' }] },
     { key: 'numero_documento', label: 'Número de documento', type: 'text', required: true, maxLength: 15, autocomplete: 'off' },
     { key: 'nombre_cliente', label: 'Nombre / razón social', type: 'text', required: true, maxLength: 100, autocomplete: 'off' },
+    { key: 'contrasenia', label: 'Contraseña (opcional)', type: 'password', maxLength: 255, hiddenOnEdit: true, autocomplete: 'new-password' },
     { key: 'telefono', label: 'Teléfono', type: 'text', maxLength: 15, autocomplete: 'off' },
     { key: 'correo', label: 'Correo', type: 'email', maxLength: 100, autocomplete: 'off' },
     { key: 'direccion', label: 'Dirección', type: 'text', maxLength: 120, autocomplete: 'off' },

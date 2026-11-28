@@ -1,5 +1,6 @@
 import { pool } from '../config/db.js'
 import { resources } from '../resources.js'
+import bcrypt from 'bcryptjs'
 
 function getResource(name) {
   return resources[name]
@@ -110,6 +111,7 @@ export async function createResource(request, response, next) {
     if (!payload.values[idx] || String(payload.values[idx]).trim() === '') {
       return response.status(400).json({ error: 'La contraseña es obligatoria.' })
     }
+    payload.values[idx] = await bcrypt.hash(String(payload.values[idx]), 10)
   }
 
   const placeholders = payload.columns.map((_, index) => `$${index + 1}`).join(', ')
@@ -131,6 +133,14 @@ export async function updateResource(request, response, next) {
 
   const payload = getPayload(resource, request.body, false)
   if (payload.error) return response.status(400).json({ error: payload.error })
+
+  if (resource.table === 'usuarios' && payload.columns.includes('contrasenia')) {
+    const idx = payload.columns.indexOf('contrasenia')
+    if (!payload.values[idx] || String(payload.values[idx]).trim() === '') {
+      return response.status(400).json({ error: 'La contraseña no puede estar vacía.' })
+    }
+    payload.values[idx] = await bcrypt.hash(String(payload.values[idx]), 10)
+  }
 
   const assignments = payload.columns.map((column, index) => `${column} = $${index + 1}`).join(', ')
   try {

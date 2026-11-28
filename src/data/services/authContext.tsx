@@ -32,6 +32,7 @@ const STORAGE_KEYS = {
   user: 'fresas-api-user',
   rol: 'fresas-api-rol',
   permisos: 'fresas-api-permisos',
+  token: 'fresas-api-token',
   sessionExpires: 'fresas-api-session-expires',
 }
 
@@ -63,13 +64,16 @@ function clearStorage() {
   sessionStorage.removeItem(STORAGE_KEYS.user)
   sessionStorage.removeItem(STORAGE_KEYS.rol)
   sessionStorage.removeItem(STORAGE_KEYS.permisos)
+  sessionStorage.removeItem(STORAGE_KEYS.token)
   sessionStorage.removeItem(STORAGE_KEYS.sessionExpires)
 }
 
-function saveToStorage(user: AuthUser, rol: string, permisos: Array<{ modulo: string; privilegio: string }>) {
+function saveToStorage(user: AuthUser, rol: string, permisos: Array<{ modulo: string; privilegio: string }>, token: string | null) {
   sessionStorage.setItem(STORAGE_KEYS.user, JSON.stringify(user))
   sessionStorage.setItem(STORAGE_KEYS.rol, rol)
   sessionStorage.setItem(STORAGE_KEYS.permisos, JSON.stringify(permisos))
+  if (token) sessionStorage.setItem(STORAGE_KEYS.token, token)
+  else sessionStorage.removeItem(STORAGE_KEYS.token)
   sessionStorage.setItem(STORAGE_KEYS.sessionExpires, String(Date.now() + SESSION_DURATION))
 }
 
@@ -123,8 +127,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState(s => ({ ...s, isLoading: true }))
     try {
       const response = await api.login(correo, contrasenia)
-      const { usuario, rol, permisos } = response
-      saveToStorage(usuario, rol, permisos)
+      const { usuario, rol, permisos, token } = response
+      saveToStorage(usuario, rol, permisos, token)
       setState({
         user: usuario,
         rol,

@@ -19,6 +19,7 @@ export interface Cliente {
   numero_documento: string
   tipo_documento: TipoDocumento
   nombre_cliente: string
+  contrasenia?: string | null
   telefono: string | null
   correo: string | null
   direccion: string | null
@@ -62,6 +63,7 @@ export interface DetalleVenta {
 }
 export interface Lote {
   id_lote: number
+  id_producto?: number
   id_detalle_compra: number | null
   id_detalle_produccion: number | null
   numero_lote: string
@@ -87,8 +89,10 @@ export interface Produccion {
   id_produccion: number
   id_usuario: number
   id_lote_origen: number
+  id_producto_resultado?: number
   fecha_produccion: string
   cantidad_a_procesar: number
+  cantidad_estimada_congelada?: number
   merma: number | null
   estado: EstadoProduccion
   fecha_finalizacion: string | null

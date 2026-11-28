@@ -425,7 +425,7 @@ describe('modelo de datos v2', () => {
     expect(hasPermission(state, seller.id_rol, 'Ventas', 'Registrar')).toBe(true)
     expect(hasPermission(state, seller.id_rol, 'Compras', 'Consultar')).toBe(false)
     expect(getHomePath(state, seller)).toBe('/ventas')
-    expect(hasPermission(state, operator.id_rol, 'Producción', 'Finalizar')).toBe(true)
+    expect(hasPermission(state, operator.id_rol, 'Producción', 'Congelar')).toBe(true)
     expect(hasPermission(state, operator.id_rol, 'Ventas', 'Consultar')).toBe(false)
     expect(getHomePath(state, operator)).toBe('/compras')
   })

@@ -108,6 +108,21 @@ describe('resource configs', () => {
     expect(catField?.fkValueKey).toBe('id_categoria')
   })
 
+  it('producto keeps Estado after the other form fields', () => {
+    expect(productoResource.fields.at(-1)?.key).toBe('estado')
+  })
+
+  it('categoria list shows associated product count', () => {
+    expect(categoriaResource.columns.map(column => column.key)).toContain('productos_count')
+  })
+
+  it('cliente supports an optional create-only password', () => {
+    const passwordField = clienteResource.fields.find(field => field.key === 'contrasenia')
+    expect(passwordField?.type).toBe('password')
+    expect(passwordField?.required).not.toBe(true)
+    expect(passwordField?.hiddenOnEdit).toBe(true)
+  })
+
   it('proveedor has dependent departamento/municipio selects', () => {
     const deptField = proveedorResource.fields.find(f => f.key === 'id_departamento')
     const munField = proveedorResource.fields.find(f => f.key === 'id_municipio')

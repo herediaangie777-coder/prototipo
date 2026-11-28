@@ -24,7 +24,7 @@ function orderedStamp(index: number, count: number, startDaysAgo: number, endDay
 const emptyIds = () => Object.fromEntries(tables.map(table => [table, 1])) as Record<TableName, number>
 
 const moduleNames = ['Dashboard', 'Roles y permisos', 'Usuarios', 'Categorías', 'Productos', 'Proveedores', 'Compras', 'Producción', 'Clientes', 'Ventas']
-const actionNames = ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado', 'Anular', 'Exportar', 'Asociar lote', 'Finalizar']
+const actionNames = ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado', 'Anular', 'Eliminar', 'Exportar', 'Asociar lote', 'Congelar']
 export function createDemoSeed(): AppState {
   const categorias = ['Calibre 1', 'Calibre 2', 'Calibre 3', 'Jumbo'].map((nombre_categoria, index) => ({
     id_categoria: index + 1, nombre_categoria, estado: true,
@@ -70,7 +70,7 @@ export function createDemoSeed(): AppState {
     { numero_documento: '901234567', tipo_documento: 'NIT', nombre_cliente: 'Restaurante El Fresal', telefono: '6047778899', correo: 'info@elfresal.com', direccion: 'Circular 4 70-15', estado: true, id_municipio: 1 },
   ]
   const roles = [
-    { id_rol: 1, nombre_rol: 'Administrador', estado: true },
+    { id_rol: 1, nombre_rol: 'Super Administrador', estado: true },
     { id_rol: 2, nombre_rol: 'Vendedor', estado: true },
     { id_rol: 3, nombre_rol: 'Operario', estado: true },
   ]
@@ -87,7 +87,7 @@ export function createDemoSeed(): AppState {
       'Ventas:Consultar', 'Ventas:Filtrar', 'Ventas:Registrar', 'Ventas:Ver detalle', 'Ventas:Anular', 'Ventas:Exportar'],
     3: ['Productos:Consultar', 'Productos:Filtrar', 'Proveedores:Consultar', 'Proveedores:Filtrar',
       'Compras:Consultar', 'Compras:Filtrar', 'Compras:Ver detalle', 'Producción:Consultar', 'Producción:Filtrar',
-      'Producción:Registrar', 'Producción:Ver detalle', 'Producción:Editar', 'Producción:Anular', 'Producción:Finalizar'],
+      'Producción:Registrar', 'Producción:Ver detalle', 'Producción:Editar', 'Producción:Anular', 'Producción:Congelar'],
   }
   for (const [roleIdText, pairs] of Object.entries(roleAssignments)) {
     for (const pair of pairs) {

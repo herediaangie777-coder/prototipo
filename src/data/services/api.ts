@@ -33,10 +33,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   for (let attempt = 0; attempt <= retries; attempt++) {
     let response: Response
     try {
+      const token = typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem('fresas-api-token')
       response = await fetch(url, {
         ...fetchOptions,
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...fetchOptions.headers,
         },
       })
@@ -85,6 +87,8 @@ export const api = {
       }
       rol: string
       permisos: Array<{ modulo: string; privilegio: string }>
+      token: string | null
+      expiresIn: number | null
     }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ correo: correo.toLowerCase(), contrasenia }),
@@ -137,6 +141,9 @@ export const api = {
     const query = params ? '?' + new URLSearchParams(params).toString() : ''
     return request<ApiResponse<any[]>>(`/v_lotes${query}`).then(({ data }) => data)
   },
+
+  getProductLots: (id: number) =>
+    request<ApiResponse<any[]>>(`/productos/${id}/lotes`).then(({ data }) => data),
 }
 
 export type { ApiResponse }

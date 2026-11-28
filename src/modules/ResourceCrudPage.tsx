@@ -248,6 +248,7 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
 
   function getVisibleFields(fieldList: FieldConfig[], isEdit: boolean, formValues?: FormValues): FieldConfig[] {
     return fieldList.filter(f => {
+      if (f.key === 'estado' && !canChangeState) return false
       if (isEdit && f.hiddenOnEdit) return false
       if (!isEdit && f.hiddenOnCreate) return false
       if (f.showWhen && formValues) return f.showWhen(formValues as Record<string, unknown>)

@@ -35,14 +35,14 @@ describe('api service', () => {
       ok: true,
       json: async () => ({
         usuario: { id_usuario: 1, id_rol: 1, nombre: 'Admin', apellido: 'User', correo: 'admin@fresas.co', telefono: null, estado: true },
-        rol: 'Administrador',
+        rol: 'Super Administrador',
         permisos: [{ modulo: 'Usuarios', privilegio: 'Consultar' }],
       }),
       headers: { get: () => 'application/json' },
     })
     const result = await api.login('admin@fresas.co', 'Admin123*')
     expect(result.usuario.correo).toBe('admin@fresas.co')
-    expect(result.rol).toBe('Administrador')
+    expect(result.rol).toBe('Super Administrador')
     expect(mockFetch).toHaveBeenCalledWith('http://localhost:3000/api/auth/login', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ correo: 'admin@fresas.co', contrasenia: 'Admin123*' }),

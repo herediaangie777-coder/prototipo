@@ -3,19 +3,7 @@ import { ConfirmModal, EditBtn, Field, FilterPopover, Ic, Modal, P, Pagination, 
 import { useToast } from '@/components/toast'
 import { api, isApiMode } from '@/data/services/api'
 import { useAuth } from '@/data/services/authContext'
-
-const MODULE_ACTIONS: Record<string, string[]> = {
-  Dashboard: ['Consultar', 'Exportar'],
-  'Roles y permisos': ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado'],
-  Usuarios: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado'],
-  Categorías: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado'],
-  Productos: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado', 'Exportar'],
-  Proveedores: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado'],
-  Compras: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Anular', 'Exportar', 'Asociar lote'],
-  Producción: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Finalizar', 'Anular'],
-  Clientes: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Editar', 'Cambiar estado'],
-  Ventas: ['Consultar', 'Filtrar', 'Registrar', 'Ver detalle', 'Anular', 'Exportar'],
-}
+import { moduleActions } from '@/data/moduleActions'
 
 export function RolesPage() {
   const { hasPermission, hasModuleAccess } = useAuth()
@@ -162,11 +150,12 @@ export function RolesPage() {
   const shown = rows.slice((page - 1) * 10, page * 10)
 
   const moduleCards = useMemo(() => permisos.map(permission => {
+    const actionOrder: readonly string[] = moduleActions[permission.nombre_permiso as keyof typeof moduleActions] ?? []
     const validPairs = permisosPrivilegios
       .filter(pair => pair.id_permiso === permission.id_permiso)
       .map(pair => ({ pair, privilege: privilegios.find(item => item.id_privilegio === pair.id_privilegio)! }))
-      .sort((a, b) => (MODULE_ACTIONS[permission.nombre_permiso] || []).indexOf(a.privilege.nombre_privilegio)
-        - (MODULE_ACTIONS[permission.nombre_permiso] || []).indexOf(b.privilege.nombre_privilegio))
+      .sort((a, b) => actionOrder.indexOf(a.privilege.nombre_privilegio)
+        - actionOrder.indexOf(b.privilege.nombre_privilegio))
     const selectedCount = validPairs.filter(({ pair }) => selectedPerms.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio === pair.id_privilegio)).length
     return { permission, validPairs, selectedCount }
   }), [permisos, permisosPrivilegios, privilegios, selectedPerms])

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "api": "node api/src/server.js",
-    "api:dev": "nodemon api/src/server.js",
+    "api:dev": "node api/scripts/dev.js",
     "start": "node api/src/server.js",
     "seed:demo": "node api/scripts/seed-demo.js",
     "build": "vite build",
