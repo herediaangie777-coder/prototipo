@@ -193,16 +193,29 @@ export async function getVStockProducto(request, response, next) {
 
 export async function getVLotes(request, response, next) {
   try {
-    const { conditions, values } = buildViewFilter(request.query, [
+    const lotColumns = [
       'id_lote', 'numero_lote', 'id_detalle_compra', 'id_detalle_produccion',
       'fecha_ingreso', 'fecha_vencimiento', 'tipo_empaque', 'cantidad_disponible',
-      'id_ubicacion', 'es_transformable', 'estado', 'id_producto'
-    ])
-    let sql = 'SELECT * FROM public.v_lotes'
+      'id_ubicacion', 'es_transformable', 'estado',
+    ]
+    const conditions = []
+    const values = []
+    for (const [key, value] of Object.entries(request.query)) {
+      if (value === undefined || value === '') continue
+      if (key === 'id_producto') conditions.push(`COALESCE(dc.id_producto, dp.id_producto) = $${values.push(value)}`)
+      else if (lotColumns.includes(key)) conditions.push(`l.${key} = $${values.push(value)}`)
+    }
+    let sql = `SELECT l.id_lote, l.numero_lote, l.id_detalle_compra, l.id_detalle_produccion,
+                      l.fecha_ingreso, l.fecha_vencimiento, l.tipo_empaque, l.cantidad_disponible,
+                      l.id_ubicacion, l.es_transformable, l.estado,
+                      COALESCE(dc.id_producto, dp.id_producto) AS id_producto
+               FROM public.lotes l
+               LEFT JOIN public.detalle_compra dc ON dc.id_detalle_compra = l.id_detalle_compra
+               LEFT JOIN public.detalle_produccion dp ON dp.id_detalle_produccion = l.id_detalle_produccion`
     if (conditions.length > 0) {
       sql += ` WHERE ${conditions.join(' AND ')}`
     }
-    sql += ' ORDER BY id_lote DESC'
+    sql += ' ORDER BY l.id_lote DESC'
     const result = await pool.query(sql, values)
     response.status(200).json({ data: result.rows })
   } catch (error) {
@@ -219,16 +232,22 @@ export async function getProductLots(request, response, next) {
     if (productResult.rowCount === 0) return recordNotFound(response)
 
     const result = await pool.query(
-      `SELECT vl.*, u.nombre_ubicacion, dc.id_compra, dp.id_produccion, pr.id_lote_origen
-       FROM public.v_lotes vl
-       JOIN public.ubicaciones u ON u.id_ubicacion = vl.id_ubicacion
-       LEFT JOIN public.detalle_produccion dp ON dp.id_detalle_produccion = vl.id_detalle_produccion
+      `SELECT l.id_lote, l.numero_lote, l.id_detalle_compra, l.id_detalle_produccion,
+              l.fecha_ingreso, l.fecha_vencimiento, l.tipo_empaque, l.cantidad_disponible,
+              l.id_ubicacion, l.es_transformable, l.estado,
+              COALESCE(dc.id_producto, dp.id_producto) AS id_producto,
+              u.nombre_ubicacion, COALESCE(dc.id_compra, source_dc.id_compra) AS id_compra,
+              dp.id_produccion, pr.id_lote_origen
+       FROM public.lotes l
+       JOIN public.ubicaciones u ON u.id_ubicacion = l.id_ubicacion
+       LEFT JOIN public.detalle_compra dc ON dc.id_detalle_compra = l.id_detalle_compra
+       LEFT JOIN public.detalle_produccion dp ON dp.id_detalle_produccion = l.id_detalle_produccion
        LEFT JOIN public.produccion pr ON pr.id_produccion = dp.id_produccion
        LEFT JOIN public.lotes lote_origen ON lote_origen.id_lote = pr.id_lote_origen
-       LEFT JOIN public.detalle_compra dc
-         ON dc.id_detalle_compra = COALESCE(vl.id_detalle_compra, lote_origen.id_detalle_compra)
-       WHERE vl.id_producto = $1
-       ORDER BY vl.fecha_vencimiento ASC, vl.id_lote ASC`,
+       LEFT JOIN public.detalle_compra source_dc
+         ON source_dc.id_detalle_compra = lote_origen.id_detalle_compra
+       WHERE COALESCE(dc.id_producto, dp.id_producto) = $1
+       ORDER BY l.fecha_vencimiento ASC, l.id_lote ASC`,
       [request.params.id]
     )
     response.status(200).json({ data: result.rows })

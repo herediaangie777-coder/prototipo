@@ -167,6 +167,8 @@ describe('updateSale', () => {
       'UPDATE public.lotes SET cantidad_disponible = $1, estado = $2 WHERE id_lote = $3',
       [2, true, 7]
     )
+    const lotQuery = client.query.mock.calls.find(([sql]) => sql.includes('COALESCE(dc.id_producto, dp.id_producto)'))[0]
+    expect(lotQuery).not.toContain('l.id_producto')
     expect(client.query).toHaveBeenCalledWith('COMMIT')
     expect(response.status).toHaveBeenCalledWith(200)
     expect(client.release).toHaveBeenCalledOnce()

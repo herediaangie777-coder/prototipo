@@ -22,6 +22,8 @@ describe('privilege resources', () => {
 
   it('exposes production estimates while preventing manual production-detail mutations', () => {
     expect(resources.produccion.readColumns).toContain('merma_estimada')
+    expect(resources.lotes.columns).not.toContain('id_producto')
+    expect(resources.produccion.columns).not.toContain('id_producto_resultado')
     expect(resources.detalle_produccion).toMatchObject({
       allowCreate: false,
       allowUpdate: false,

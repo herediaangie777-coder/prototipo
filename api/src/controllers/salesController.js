@@ -153,14 +153,17 @@ export async function createSale(request, response, next) {
 
     for (const line of lines) {
       const lotResult = await client.query(
-        `SELECT id_lote, id_producto, cantidad_disponible
-         FROM public.lotes
-         WHERE id_producto = $1 AND estado AND fecha_vencimiento >= CURRENT_DATE
-           AND cantidad_disponible > 0
-           AND (($2 = 'Fresca' AND id_detalle_compra IS NOT NULL)
-             OR ($2 = 'Congelada' AND id_detalle_produccion IS NOT NULL))
-         ORDER BY fecha_vencimiento, id_lote
-         FOR UPDATE`,
+        `SELECT l.id_lote, COALESCE(dc.id_producto, dp.id_producto) AS id_producto, l.cantidad_disponible
+         FROM public.lotes l
+         LEFT JOIN public.detalle_compra dc ON dc.id_detalle_compra = l.id_detalle_compra
+         LEFT JOIN public.detalle_produccion dp ON dp.id_detalle_produccion = l.id_detalle_produccion
+         WHERE COALESCE(dc.id_producto, dp.id_producto) = $1
+           AND l.estado AND l.fecha_vencimiento >= CURRENT_DATE
+           AND l.cantidad_disponible > 0
+           AND (($2 = 'Fresca' AND l.id_detalle_compra IS NOT NULL)
+             OR ($2 = 'Congelada' AND l.id_detalle_produccion IS NOT NULL))
+         ORDER BY l.fecha_vencimiento, l.id_lote
+         FOR UPDATE OF l`,
         [line.product.id_producto, line.product.tipo_producto]
       )
       const available = lotResult.rows.reduce((sum, lot) => sum + Number(lot.cantidad_disponible), 0)
@@ -393,13 +396,15 @@ export async function updateSale(request, response, next) {
     )
     const oldLotIds = [...new Set(oldDetailsResult.rows.map(detail => Number(detail.id_lote)))]
     const lotsResult = await client.query(
-      `SELECT id_lote, id_producto, id_detalle_compra, id_detalle_produccion,
-              cantidad_disponible, estado, (fecha_vencimiento >= CURRENT_DATE) AS vigente,
-              fecha_vencimiento
-       FROM public.lotes
-       WHERE id_lote = ANY($1::int[]) OR id_producto = ANY($2::int[])
-       ORDER BY id_lote
-       FOR UPDATE`,
+      `SELECT l.id_lote, COALESCE(dc.id_producto, dp.id_producto) AS id_producto,
+              l.id_detalle_compra, l.id_detalle_produccion, l.cantidad_disponible,
+              l.estado, (l.fecha_vencimiento >= CURRENT_DATE) AS vigente, l.fecha_vencimiento
+       FROM public.lotes l
+       LEFT JOIN public.detalle_compra dc ON dc.id_detalle_compra = l.id_detalle_compra
+       LEFT JOIN public.detalle_produccion dp ON dp.id_detalle_produccion = l.id_detalle_produccion
+       WHERE l.id_lote = ANY($1::int[]) OR COALESCE(dc.id_producto, dp.id_producto) = ANY($2::int[])
+       ORDER BY l.id_lote
+       FOR UPDATE OF l`,
       [oldLotIds, productIds]
     )
     const lotBalances = new Map(lotsResult.rows.map(lot => [Number(lot.id_lote), {

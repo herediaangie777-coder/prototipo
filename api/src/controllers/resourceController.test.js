@@ -4,7 +4,7 @@ const { pool } = vi.hoisted(() => ({ pool: { query: vi.fn() } }))
 
 vi.mock('../config/db.js', () => ({ pool }))
 
-import { createResource, updateResource } from './resourceController.js'
+import { createResource, listResources, updateResource } from './resourceController.js'
 
 function createResponse() {
   const response = {
@@ -17,6 +17,43 @@ function createResponse() {
 describe('user password writes', () => {
   beforeEach(() => {
     pool.query.mockReset()
+  })
+
+  describe('resource reads for lots and production', () => {
+    beforeEach(() => {
+      pool.query.mockReset()
+    })
+
+    it('lists lots by purchase detail without selecting id_producto from lotes', async () => {
+      pool.query.mockResolvedValue({ rowCount: 0, rows: [] })
+      const response = createResponse()
+
+      await listResources({
+        params: { resource: 'lotes' },
+        query: { id_detalle_compra: '8' },
+      }, response, vi.fn())
+
+      const [sql, values] = pool.query.mock.calls[0]
+      expect(sql).toContain('SELECT id_lote, numero_lote, id_detalle_compra')
+      expect(sql).toContain('FROM public.lotes')
+      expect(sql).not.toContain('id_producto')
+      expect(values).toEqual(['8'])
+      expect(response.status).toHaveBeenCalledWith(200)
+    })
+
+    it('derives production output product from detalle_produccion on reads', async () => {
+      pool.query.mockResolvedValue({ rowCount: 0, rows: [] })
+      const response = createResponse()
+
+      await listResources({ params: { resource: 'produccion' }, query: {} }, response, vi.fn())
+
+      const [sql] = pool.query.mock.calls[0]
+      expect(sql).toContain('FROM public.produccion pr')
+      expect(sql).toContain('FROM public.detalle_produccion dp')
+      expect(sql).toContain('AS id_producto_resultado')
+      expect(sql).not.toContain('pr.id_producto_resultado')
+      expect(response.status).toHaveBeenCalledWith(200)
+    })
   })
 
   it('stores a 20-character password directly when creating a user', async () => {

@@ -47,6 +47,9 @@ describe('productionController', () => {
       if (sql.includes('INSERT INTO public.produccion')) {
         return { rowCount: 1, rows: [{ id_produccion: 11, cantidad_estimada_congelada: 18 }] }
       }
+      if (sql.includes('INSERT INTO public.detalle_produccion')) {
+        return { rowCount: 1, rows: [{ id_detalle_produccion: 17 }] }
+      }
       if (sql.includes('UPDATE public.lotes')) return { rowCount: 1, rows: [] }
       throw new Error(`Unexpected SQL: ${sql}`)
     })
@@ -65,12 +68,21 @@ describe('productionController', () => {
 
     expect(client.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO public.produccion'),
-      [3, 7, 5, 10, 18, 1, 'Turno mañana']
+      [3, 7, 10, 18, 1, 'Turno mañana']
+    )
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO public.detalle_produccion'),
+      [11, 5, 18]
     )
     expect(client.query).toHaveBeenCalledWith(
       'UPDATE public.lotes SET cantidad_disponible = $1, estado = ($1 > 0) WHERE id_lote = $2',
       [10, 7]
     )
+    const sourceQuery = client.query.mock.calls.find(([sql]) => sql.includes('SELECT l.id_lote'))[0]
+    const productionInsert = client.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO public.produccion'))[0]
+    expect(sourceQuery).toContain('dc.id_producto')
+    expect(sourceQuery).not.toContain('l.id_producto')
+    expect(productionInsert).not.toContain('id_producto_resultado')
     expect(client.query).toHaveBeenCalledWith('COMMIT')
     expect(response.status).toHaveBeenCalledWith(201)
     expect(client.release).toHaveBeenCalledOnce()
@@ -117,7 +129,8 @@ describe('productionController', () => {
           rows: [{
             id_produccion: 11,
             id_lote_origen: 7,
-            id_producto_resultado: 5,
+            id_detalle_produccion: 17,
+            id_producto: 5,
             cantidad_a_procesar: '10.00',
             merma_estimada: '1.00',
             observaciones: null,
@@ -133,6 +146,7 @@ describe('productionController', () => {
         return { rowCount: 1, rows: [{ cantidad_disponible: '8.00' }] }
       }
       if (sql.includes('UPDATE public.lotes')) return { rowCount: 1, rows: [] }
+      if (sql.includes('UPDATE public.detalle_produccion')) return { rowCount: 1, rows: [] }
       if (sql.includes('UPDATE public.produccion')) return { rowCount: 1, rows: [{ id_produccion: 11 }] }
       throw new Error(`Unexpected SQL: ${sql}`)
     })
@@ -144,8 +158,12 @@ describe('productionController', () => {
     }, response, vi.fn())
 
     expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('SET id_producto_resultado = $1'),
-      [6, 12, 21, 1.5, null, '11']
+      expect.stringContaining('SET cantidad_a_procesar = $1'),
+      [12, 21, 1.5, null, '11']
+    )
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE public.detalle_produccion'),
+      [6, 21, 17]
     )
     expect(client.query).toHaveBeenCalledWith(
       'UPDATE public.lotes SET cantidad_disponible = $1, estado = ($1 > 0) WHERE id_lote = $2',
@@ -158,11 +176,12 @@ describe('productionController', () => {
   it('finalizes the selected output presentation and records its actual loss in the same transaction', async () => {
     client.query.mockImplementation(async (sql) => {
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rowCount: null, rows: [] }
-      if (sql.includes('SELECT pr.*, p.peso_unidad_kg')) {
+      if (sql.includes('SELECT pr.*, dp.id_detalle_produccion')) {
         return {
           rowCount: 1,
           rows: [{
             id_produccion: 11,
+            id_detalle_produccion: 17,
             id_producto_resultado: 5,
             cantidad_a_procesar: '10.00',
             cantidad_estimada_congelada: 18,
@@ -173,7 +192,7 @@ describe('productionController', () => {
           }],
         }
       }
-      if (sql.includes('INSERT INTO public.detalle_produccion')) {
+      if (sql.includes('UPDATE public.detalle_produccion')) {
         return { rowCount: 1, rows: [{ id_detalle_produccion: 17 }] }
       }
       if (sql.includes('INSERT INTO public.lotes')) {
@@ -190,9 +209,11 @@ describe('productionController', () => {
     }, response, vi.fn())
 
     expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO public.detalle_produccion'),
-      ['11', 5, 18]
+      expect.stringContaining('UPDATE public.detalle_produccion'),
+      [18, 17]
     )
+    const lotInsert = client.query.mock.calls.find(([sql]) => sql.includes('INSERT INTO public.lotes'))[0]
+    expect(lotInsert).not.toContain('id_producto')
     expect(client.query).toHaveBeenCalledWith(
       expect.stringContaining('SET merma = $1'),
       [1, '11']

@@ -5,7 +5,7 @@ const { pool } = vi.hoisted(() => ({ pool: { connect: vi.fn(), query: vi.fn() } 
 
 vi.mock('../config/db.js', () => ({ pool }))
 
-import { getProductLots, login, putRolePermisos } from './customController.js'
+import { getProductLots, getVLotes, login, putRolePermisos } from './customController.js'
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -145,9 +145,26 @@ describe('getProductLots', () => {
 
     await getProductLots({ params: { id: '2' } }, response, vi.fn())
 
-    expect(pool.query.mock.calls[1][0]).toContain('u.nombre_ubicacion')
-    expect(pool.query.mock.calls[1][0]).toContain('ORDER BY vl.fecha_vencimiento ASC, vl.id_lote ASC')
+    expect(pool.query.mock.calls[1][0]).toContain('COALESCE(dc.id_producto, dp.id_producto)')
+    expect(pool.query.mock.calls[1][0]).toContain('ORDER BY l.fecha_vencimiento ASC, l.id_lote ASC')
     expect(response.status).toHaveBeenCalledWith(200)
     expect(response.json).toHaveBeenCalledWith({ data: lots })
+  })
+})
+
+describe('getVLotes', () => {
+  it('filters by purchase detail and derives product id through related detail tables', async () => {
+    pool.query.mockReset()
+    pool.query.mockResolvedValue({ rowCount: 0, rows: [] })
+    const response = createResponse()
+
+    await getVLotes({ query: { id_detalle_compra: '8' } }, response, vi.fn())
+
+    const [sql, values] = pool.query.mock.calls[0]
+    expect(sql).toContain('FROM public.lotes l')
+    expect(sql).toContain('COALESCE(dc.id_producto, dp.id_producto) AS id_producto')
+    expect(sql).not.toContain('l.id_producto')
+    expect(values).toEqual(['8'])
+    expect(response.status).toHaveBeenCalledWith(200)
   })
 })

@@ -44,7 +44,7 @@ function getPayload(resource, body, includeKey) {
   return { columns, values: columns.map((column) => body[column]) }
 }
 
-function buildFilterWhere(resource, query) {
+function buildFilterWhere(resource, query, tableAlias) {
   const conditions = []
   const values = []
   let paramIndex = 1
@@ -54,7 +54,7 @@ function buildFilterWhere(resource, query) {
     if (!resource.filterColumns.includes(key)) continue
     if (value === undefined || value === '') continue
 
-    conditions.push(`${key} = $${paramIndex}`)
+    conditions.push(`${tableAlias ? `${tableAlias}.` : ''}${key} = $${paramIndex}`)
     values.push(value)
     paramIndex++
   }
@@ -62,15 +62,29 @@ function buildFilterWhere(resource, query) {
   return { conditions, values, paramIndex }
 }
 
-function buildOrderBy(resource, query) {
+function buildOrderBy(resource, query, tableAlias) {
   const orden = query.orden
   const dir = query.dir?.toLowerCase()
 
   if (orden && resource.orderColumns.includes(orden) && (dir === 'asc' || dir === 'desc')) {
-    return `ORDER BY ${orden} ${dir.toUpperCase()}`
+    return `ORDER BY ${tableAlias ? `${tableAlias}.` : ''}${orden} ${dir.toUpperCase()}`
   }
 
-  return `ORDER BY ${resource.defaultOrder}`
+  const defaultOrder = tableAlias
+    ? resource.defaultOrder.replace(/^([a-z_]+)/i, `${tableAlias}.$1`)
+    : resource.defaultOrder
+  return `ORDER BY ${defaultOrder}`
+}
+
+function getReadProjection(resource, tableAlias) {
+  if (resource.table !== 'produccion') return resource.readColumns.join(', ')
+  return `pr.*, (
+    SELECT dp.id_producto
+    FROM public.detalle_produccion dp
+    WHERE dp.id_produccion = pr.id_produccion
+    ORDER BY dp.id_detalle_produccion
+    LIMIT 1
+  ) AS id_producto_resultado`
 }
 
 export async function listResources(request, response, next) {
@@ -78,10 +92,13 @@ export async function listResources(request, response, next) {
   if (!resource) return resourceNotFound(response)
 
   try {
-    const { conditions, values, paramIndex } = buildFilterWhere(resource, request.query)
-    const orderBy = buildOrderBy(resource, request.query)
+    const tableAlias = resource.table === 'produccion' ? 'pr' : null
+    const { conditions, values } = buildFilterWhere(resource, request.query, tableAlias)
+    const orderBy = buildOrderBy(resource, request.query, tableAlias)
 
-    let sql = `SELECT ${resource.readColumns.join(', ')} FROM public.${resource.table}`
+    const projection = getReadProjection(resource, tableAlias)
+    const from = tableAlias ? `public.${resource.table} ${tableAlias}` : `public.${resource.table}`
+    let sql = `SELECT ${projection} FROM ${from}`
     if (conditions.length > 0) {
       sql += ` WHERE ${conditions.join(' AND ')}`
     }
@@ -99,8 +116,12 @@ export async function getResourceById(request, response, next) {
   if (!resource) return resourceNotFound(response)
 
   try {
+    const tableAlias = resource.table === 'produccion' ? 'pr' : null
+    const projection = getReadProjection(resource, tableAlias)
+    const from = tableAlias ? `public.${resource.table} ${tableAlias}` : `public.${resource.table}`
+    const keyColumn = tableAlias ? `${tableAlias}.${resource.key}` : resource.key
     const result = await pool.query(
-      `SELECT ${resource.readColumns.join(', ')} FROM public.${resource.table} WHERE ${resource.key} = $1`,
+      `SELECT ${projection} FROM ${from} WHERE ${keyColumn} = $1`,
       [request.params.id]
     )
     if (result.rowCount === 0) return recordNotFound(response)

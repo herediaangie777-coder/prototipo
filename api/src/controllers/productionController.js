@@ -71,7 +71,8 @@ export async function createProduction(request, response, next) {
       `SELECT l.id_lote, l.id_detalle_compra, l.cantidad_disponible, l.estado, l.es_transformable, l.fecha_vencimiento,
               p.tipo_producto, p.id_categoria
        FROM public.lotes l
-       JOIN public.productos p ON p.id_producto = l.id_producto
+       JOIN public.detalle_compra dc ON dc.id_detalle_compra = l.id_detalle_compra
+       JOIN public.productos p ON p.id_producto = dc.id_producto
        WHERE l.id_lote = $1
        FOR UPDATE OF l`,
       [id_lote_origen]
@@ -122,12 +123,17 @@ export async function createProduction(request, response, next) {
 
     const productionResult = await client.query(
       `INSERT INTO public.produccion
-         (id_usuario, id_lote_origen, id_producto_resultado, cantidad_a_procesar,
+         (id_usuario, id_lote_origen, cantidad_a_procesar,
           cantidad_estimada_congelada, merma_estimada, observaciones)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [idUsuario, id_lote_origen, outputProduct.id_producto, cantidad_a_procesar, estimatedBags,
+      [idUsuario, id_lote_origen, cantidad_a_procesar, estimatedBags,
         merma_estimada, observaciones?.trim() || null]
+    )
+    await client.query(
+      `INSERT INTO public.detalle_produccion (id_produccion, id_producto, cantidad_obtenida, unidad_medida)
+       VALUES ($1, $2, $3, 'bolsa')`,
+      [productionResult.rows[0].id_produccion, outputProduct.id_producto, estimatedBags]
     )
     const remaining = Number(source.cantidad_disponible) - Number(cantidad_a_procesar)
     await client.query(
@@ -135,7 +141,9 @@ export async function createProduction(request, response, next) {
       [remaining, id_lote_origen]
     )
     await client.query('COMMIT')
-    response.status(201).json({ data: productionResult.rows[0] })
+    response.status(201).json({
+      data: { ...productionResult.rows[0], id_producto_resultado: outputProduct.id_producto },
+    })
   } catch (error) {
     await rollback(client)
     next(error)
@@ -170,10 +178,20 @@ export async function updateProduction(request, response, next) {
   try {
     await client.query('BEGIN')
     const orderResult = await client.query(
-      `SELECT pr.*, origen.id_categoria
+      `SELECT pr.*, origen.id_categoria,
+              output_detail.id_detalle_produccion, output_detail.id_producto
        FROM public.produccion pr
        JOIN public.lotes lote_origen ON lote_origen.id_lote = pr.id_lote_origen
-       JOIN public.productos origen ON origen.id_producto = lote_origen.id_producto
+       JOIN public.detalle_compra source_detail
+         ON source_detail.id_detalle_compra = lote_origen.id_detalle_compra
+       JOIN public.productos origen ON origen.id_producto = source_detail.id_producto
+       LEFT JOIN LATERAL (
+         SELECT dp.id_detalle_produccion, dp.id_producto
+         FROM public.detalle_produccion dp
+         WHERE dp.id_produccion = pr.id_produccion
+         ORDER BY dp.id_detalle_produccion
+         LIMIT 1
+       ) output_detail ON true
        WHERE pr.id_produccion = $1
        FOR UPDATE OF pr`,
       [request.params.id]
@@ -193,8 +211,12 @@ export async function updateProduction(request, response, next) {
       : Number(cantidad_a_procesar)
     const nextLoss = merma_estimada === undefined ? Number(order.merma_estimada ?? 0) : Number(merma_estimada)
     const nextProductId = id_producto_resultado === undefined
-      ? Number(order.id_producto_resultado)
+      ? Number(order.id_producto)
       : Number(id_producto_resultado)
+    if (!positiveInteger(nextProductId)) {
+      await rollback(client)
+      return badRequest(response, 'Seleccione una presentación congelada válida.')
+    }
     if (nextLoss > nextQuantity) {
       await rollback(client)
       return badRequest(response, 'La merma estimada no puede superar los kilos a procesar.')
@@ -207,7 +229,7 @@ export async function updateProduction(request, response, next) {
       [nextProductId, order.id_categoria]
     )
     if (productResult.rowCount === 0
-      || (!productResult.rows[0].estado && nextProductId !== Number(order.id_producto_resultado))) {
+      || (!productResult.rows[0].estado && nextProductId !== Number(order.id_producto))) {
       await rollback(client)
       return badRequest(response, 'Seleccione una presentación congelada activa del mismo calibre que el lote de origen.')
     }
@@ -237,15 +259,31 @@ export async function updateProduction(request, response, next) {
 
     const result = await client.query(
       `UPDATE public.produccion
-       SET id_producto_resultado = $1, cantidad_a_procesar = $2, cantidad_estimada_congelada = $3,
-           merma_estimada = $4, observaciones = $5
-       WHERE id_produccion = $6
+       SET cantidad_a_procesar = $1, cantidad_estimada_congelada = $2,
+           merma_estimada = $3, observaciones = $4
+       WHERE id_produccion = $5
        RETURNING *`,
-      [nextProductId, nextQuantity, estimatedBags, nextLoss,
+      [nextQuantity, estimatedBags, nextLoss,
         observaciones === undefined ? order.observaciones : (observaciones.trim() || null), request.params.id]
     )
+    if (order.id_detalle_produccion) {
+      await client.query(
+        `UPDATE public.detalle_produccion
+         SET id_producto = $1, cantidad_obtenida = $2, unidad_medida = 'bolsa'
+         WHERE id_detalle_produccion = $3`,
+        [nextProductId, estimatedBags, order.id_detalle_produccion]
+      )
+    } else {
+      await client.query(
+        `INSERT INTO public.detalle_produccion (id_produccion, id_producto, cantidad_obtenida, unidad_medida)
+         VALUES ($1, $2, $3, 'bolsa')`,
+        [request.params.id, nextProductId, estimatedBags]
+      )
+    }
     await client.query('COMMIT')
-    response.status(200).json({ data: result.rows[0] })
+    response.status(200).json({
+      data: { ...result.rows[0], id_producto_resultado: nextProductId },
+    })
   } catch (error) {
     await rollback(client)
     next(error)
@@ -267,9 +305,17 @@ export async function freezeProduction(request, response, next) {
   try {
     await client.query('BEGIN')
     const orderResult = await client.query(
-      `SELECT pr.*, p.peso_unidad_kg, p.tipo_producto
+      `SELECT pr.*, dp.id_detalle_produccion, dp.id_producto AS id_producto_resultado,
+              p.peso_unidad_kg, p.tipo_producto
        FROM public.produccion pr
-       JOIN public.productos p ON p.id_producto = pr.id_producto_resultado
+       JOIN LATERAL (
+         SELECT detail.id_detalle_produccion, detail.id_producto
+         FROM public.detalle_produccion detail
+         WHERE detail.id_produccion = pr.id_produccion
+         ORDER BY detail.id_detalle_produccion
+         LIMIT 1
+       ) dp ON true
+       JOIN public.productos p ON p.id_producto = dp.id_producto
        WHERE pr.id_produccion = $1
        FOR UPDATE OF pr`,
       [request.params.id]
@@ -295,20 +341,20 @@ export async function freezeProduction(request, response, next) {
       return badRequest(response, 'La fecha de vencimiento debe ser hoy o posterior.')
     }
 
-    const detailResult = await client.query(
-      `INSERT INTO public.detalle_produccion (id_produccion, id_producto, cantidad_obtenida, unidad_medida)
-       VALUES ($1, $2, $3, 'bolsa')
-       RETURNING id_detalle_produccion`,
-      [request.params.id, order.id_producto_resultado, unidades_obtenidas]
+    await client.query(
+      `UPDATE public.detalle_produccion
+       SET cantidad_obtenida = $1, unidad_medida = 'bolsa'
+       WHERE id_detalle_produccion = $2`,
+      [unidades_obtenidas, order.id_detalle_produccion]
     )
     const lotResult = await client.query(
       `INSERT INTO public.lotes
-         (numero_lote, id_producto, id_detalle_produccion, fecha_vencimiento,
+         (numero_lote, id_detalle_produccion, fecha_vencimiento,
           tipo_empaque, cantidad_disponible, id_ubicacion, es_transformable)
-       VALUES ($1, $2, $3, $4, 'Bolsa', $5, $6, false)
+       VALUES ($1, $2, $3, 'Bolsa', $4, $5, false)
        RETURNING *`,
-      [`P-${String(order.id_produccion).padStart(4, '0')}`, order.id_producto_resultado,
-        detailResult.rows[0].id_detalle_produccion, fecha_vencimiento, unidades_obtenidas, id_ubicacion]
+      [`P-${String(order.id_produccion).padStart(4, '0')}`, order.id_detalle_produccion,
+        fecha_vencimiento, unidades_obtenidas, id_ubicacion]
     )
     const updatedOrder = await client.query(
       `UPDATE public.produccion
@@ -318,7 +364,12 @@ export async function freezeProduction(request, response, next) {
       [(processMilliKg - outputMilliKg) / 1000, request.params.id]
     )
     await client.query('COMMIT')
-    response.status(200).json({ data: { produccion: updatedOrder.rows[0], lote: lotResult.rows[0] } })
+    response.status(200).json({
+      data: {
+        produccion: { ...updatedOrder.rows[0], id_producto_resultado: order.id_producto_resultado },
+        lote: lotResult.rows[0],
+      },
+    })
   } catch (error) {
     await rollback(client)
     next(error)

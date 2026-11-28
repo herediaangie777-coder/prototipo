@@ -57,11 +57,11 @@ export const resources = {
   productos: defineResource('productos', 'id_producto', ['id_categoria', 'imagen_url', 'tipo_producto', 'presentacion', 'unidad_medida', 'peso_unidad_kg', 'precio_compra', 'precio_venta_detal', 'precio_venta_mayorista', 'stock_minimo', 'estado']),
   compras: defineResource('compras', 'id_compra', ['id_proveedor', 'id_usuario', 'fecha_compra', 'iva', 'descuento', 'total_compra', 'observaciones', 'estado']),
   detalle_compra: defineResource('detalle_compra', 'id_detalle_compra', ['id_compra', 'id_producto', 'cantidad', 'unidad_medida', 'precio_unitario']),
-  lotes: defineResource('lotes', 'id_lote', ['numero_lote', 'id_producto', 'id_detalle_compra', 'id_detalle_produccion', 'fecha_ingreso', 'fecha_vencimiento', 'tipo_empaque', 'cantidad_disponible', 'id_ubicacion', 'es_transformable', 'estado']),
+  lotes: defineResource('lotes', 'id_lote', ['numero_lote', 'id_detalle_compra', 'id_detalle_produccion', 'fecha_ingreso', 'fecha_vencimiento', 'tipo_empaque', 'cantidad_disponible', 'id_ubicacion', 'es_transformable', 'estado']),
   produccion: defineResource(
     'produccion',
     'id_produccion',
-    ['id_usuario', 'id_lote_origen', 'id_producto_resultado', 'fecha_produccion', 'cantidad_a_procesar', 'cantidad_estimada_congelada', 'merma_estimada', 'merma', 'estado', 'fecha_finalizacion', 'observaciones'],
+    ['id_usuario', 'id_lote_origen', 'fecha_produccion', 'cantidad_a_procesar', 'cantidad_estimada_congelada', 'merma_estimada', 'merma', 'estado', 'fecha_finalizacion', 'observaciones'],
     undefined,
     { allowCreate: false, allowUpdate: false, allowDelete: false }
   ),
