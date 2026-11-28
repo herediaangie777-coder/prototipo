@@ -93,6 +93,7 @@ export interface Produccion {
   fecha_produccion: string
   cantidad_a_procesar: number
   cantidad_estimada_congelada?: number
+  merma_estimada?: number
   merma: number | null
   estado: EstadoProduccion
   fecha_finalizacion: string | null
@@ -101,6 +102,7 @@ export interface Produccion {
 export interface Producto {
   id_producto: number
   id_categoria: number
+  imagen_url?: string | null
   tipo_producto: TipoProducto
   presentacion: string
   unidad_medida: 'kg' | 'bolsa'

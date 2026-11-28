@@ -33,7 +33,7 @@ describe('modelo de datos v2', () => {
     expect(state.categorias.map(row => row.nombre_categoria)).toEqual(['Calibre 1', 'Calibre 2', 'Calibre 3', 'Jumbo'])
     expect(state.ubicaciones.map(row => row.id_ubicacion)).toEqual([315, 366])
     expect(state.productos.filter(row => row.tipo_producto === 'Fresca').every(row => row.unidad_medida === 'kg' && row.peso_unidad_kg === null && row.presentacion === 'Granel')).toBe(true)
-    expect(state.productos.filter(row => row.tipo_producto === 'Congelada').every(row => row.unidad_medida === 'bolsa' && row.peso_unidad_kg === 1 && row.presentacion === 'Bolsa 1 kg')).toBe(true)
+    expect(state.productos.filter(row => row.tipo_producto === 'Congelada').every(row => row.unidad_medida === 'bolsa' && row.peso_unidad_kg === 1 && row.presentacion === 'Bolsa')).toBe(true)
     expect(state.compras.length).toBeGreaterThanOrEqual(20)
     expect(state.compras.every(purchase => state.detalle_compra.some(detail => detail.id_compra === purchase.id_compra
       && state.lotes.some(lot => lot.id_detalle_compra === detail.id_detalle_compra)))).toBe(true)
@@ -88,6 +88,51 @@ describe('modelo de datos v2', () => {
     expect(updated.productos.find(row => row.id_producto === product.id_producto)?.estado).toBe(false)
     expect(stockVendible(updated, product.id_producto)).toBe(stockBefore)
     checkInvariants(updated)
+  })
+
+  it('distinguishes frozen product variants by their unit weight and allows clearing an image URL', () => {
+    const state = createDemoSeed()
+    const productInput = {
+      id_categoria: '1',
+      tipo_producto: 'Congelada',
+      presentacion: 'Bolsa',
+      precio_compra: '9000',
+      precio_venta_detal: '14000',
+      precio_venta_mayorista: '12000',
+      peso_unidad_kg: '0.5',
+      stock_minimo: '8',
+    }
+    const halfKilo = saveMaster(state, 'producto', productInput)
+    const twoKilo = saveMaster(halfKilo, 'producto', { ...productInput, peso_unidad_kg: '2' })
+    expect(twoKilo.productos.filter(row => row.tipo_producto === 'Congelada'
+      && row.id_categoria === 1 && row.presentacion === 'Bolsa')).toHaveLength(3)
+    checkInvariants(twoKilo)
+    expect(() => saveMaster(twoKilo, 'producto', productInput)).toThrow('Ya existe un producto registrado con esa variante.')
+
+    const fresh = state.productos[0]
+    const withImage = saveMaster(state, 'producto', {
+      id_categoria: String(fresh.id_categoria),
+      tipo_producto: fresh.tipo_producto,
+      presentacion: fresh.presentacion,
+      precio_compra: String(fresh.precio_compra),
+      precio_venta_detal: String(fresh.precio_venta_detal),
+      precio_venta_mayorista: String(fresh.precio_venta_mayorista),
+      peso_unidad_kg: '',
+      stock_minimo: String(fresh.stock_minimo),
+      imagen_url: 'https://example.com/fresa.jpg',
+    }, fresh.id_producto)
+    const clearedImage = saveMaster(withImage, 'producto', {
+      id_categoria: String(fresh.id_categoria),
+      tipo_producto: fresh.tipo_producto,
+      presentacion: fresh.presentacion,
+      precio_compra: String(fresh.precio_compra),
+      precio_venta_detal: String(fresh.precio_venta_detal),
+      precio_venta_mayorista: String(fresh.precio_venta_mayorista),
+      peso_unidad_kg: '',
+      stock_minimo: String(fresh.stock_minimo),
+      imagen_url: '',
+    }, fresh.id_producto)
+    expect(clearedImage.productos.find(row => row.id_producto === fresh.id_producto)?.imagen_url).toBeNull()
   })
 
   it('registra compra multilínea con importes en pesos, lote opcional y stock solo al asociarlo', () => {

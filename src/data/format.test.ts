@@ -6,7 +6,20 @@ describe('display formatting', () => {
     expect(resolveForeignName([{ id_municipio: 7, nombre_municipio: 'Santa Rosa' }], 7, 'id_municipio', 'nombre_municipio')).toBe('Santa Rosa')
   })
   it('builds the product composite name', () => {
-    expect(productoNombre({ tipo_producto: 'Fresca', id_categoria: 2, presentacion: 'Calibre 1' }, [{ id_categoria: 2, nombre_categoria: 'Calibre 1' }])).toBe('Fresa Fresca · Calibre 1 · Calibre 1')
+    expect(productoNombre(
+      { tipo_producto: 'Congelada', id_categoria: 2, presentacion: 'Bolsa 1 kg', unidad_medida: 'bolsa', peso_unidad_kg: 1 },
+      [{ id_categoria: 2, nombre_categoria: 'Calibre 2' }],
+    )).toBe('Fresa Congelada · Calibre 2 · Bolsa · 1 kg · bolsa')
+  })
+  it('shows category, presentation and inventory unit without repeating the stored package weight', () => {
+    expect(productoNombre(
+      { tipo_producto: 'Congelada', id_categoria: 2, presentacion: 'Bolsa', unidad_medida: 'bolsa', peso_unidad_kg: 0.5 },
+      [{ id_categoria: 2, nombre_categoria: 'Calibre 2' }],
+    )).toBe('Fresa Congelada · Calibre 2 · Bolsa · 500 g · bolsa')
+    expect(productoNombre(
+      { tipo_producto: 'Fresca', id_categoria: 1, presentacion: 'Granel', unidad_medida: 'kg', peso_unidad_kg: null },
+      [{ id_categoria: 1, nombre_categoria: 'Jumbo' }],
+    )).toBe('Fresa Fresca · Jumbo · Granel · kg')
   })
   it('identifies frozen product weight visibility and protects the general client', async () => {
     const { mostrarPesoBolsa } = await import('./format')

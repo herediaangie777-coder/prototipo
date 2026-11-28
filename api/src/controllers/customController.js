@@ -1,7 +1,6 @@
 import { pool } from '../config/db.js'
 import bcrypt from 'bcryptjs'
 import { createAuthToken } from '../auth/jwt.js'
-import { isLocalDevelopment } from '../middleware/authMiddleware.js'
 
 function recordNotFound(response) {
   response.status(404).json({ error: 'Registro no encontrado.' })
@@ -41,17 +40,28 @@ export async function putRolePermisos(request, response, next) {
   try {
     await client.query('BEGIN')
 
-    const roleResult = await client.query('SELECT id_rol FROM public.roles WHERE id_rol = $1', [id])
+    const roleResult = await client.query(
+      'SELECT id_rol, nombre_rol FROM public.roles WHERE id_rol = $1 FOR UPDATE',
+      [id]
+    )
     if (roleResult.rowCount === 0) {
       await client.query('ROLLBACK')
       return recordNotFound(response)
     }
 
+    const isSuperAdmin = roleResult.rows[0].id_rol === 1
+      || roleResult.rows[0].nombre_rol === 'Super Administrador'
+    const permissionsToSave = isSuperAdmin
+      ? (await client.query(
+        'SELECT id_permiso, id_privilegio FROM public.permisos_privilegios ORDER BY id_permiso, id_privilegio'
+      )).rows
+      : permisos
+
     await client.query('DELETE FROM public.roles_x_permisos WHERE id_rol = $1', [id])
 
-    if (permisos.length > 0) {
-      const values = permisos.flatMap((p) => [id, p.id_permiso, p.id_privilegio])
-      const placeholders = permisos.map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`).join(', ')
+    if (permissionsToSave.length > 0) {
+      const values = permissionsToSave.flatMap((p) => [id, p.id_permiso, p.id_privilegio])
+      const placeholders = permissionsToSave.map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`).join(', ')
       await client.query(
         `INSERT INTO public.roles_x_permisos (id_rol, id_permiso, id_privilegio) VALUES ${placeholders}`,
         values
@@ -127,10 +137,14 @@ export async function login(request, response, next) {
       return response.status(403).json({ error: 'Su cuenta se encuentra inactiva. Contacte al administrador del sistema.' })
     }
 
-    const isBcryptHash = /^\$2[aby]\$/.test(user.contrasenia)
+    const storedPassword = user.contrasenia
+    const isBcryptHash = typeof storedPassword === 'string' && /^\$2[aby]\$/.test(storedPassword)
     const validPassword = isBcryptHash
-      ? await bcrypt.compare(contrasenia, user.contrasenia)
-      : isLocalDevelopment(request) && contrasenia === user.contrasenia
+      ? await bcrypt.compare(contrasenia, storedPassword)
+      : typeof storedPassword === 'string'
+        && !storedPassword.startsWith('$2')
+        && Array.from(contrasenia).length <= 20
+        && contrasenia === storedPassword
     if (!validPassword) {
       return response.status(401).json({ error: 'Credenciales de acceso inválidas. Por favor verifique e intente de nuevo.' })
     }
@@ -205,15 +219,16 @@ export async function getProductLots(request, response, next) {
     if (productResult.rowCount === 0) return recordNotFound(response)
 
     const result = await pool.query(
-      `SELECT vl.*, dc.id_compra, dp.id_produccion, pr.id_lote_origen
+      `SELECT vl.*, u.nombre_ubicacion, dc.id_compra, dp.id_produccion, pr.id_lote_origen
        FROM public.v_lotes vl
+       JOIN public.ubicaciones u ON u.id_ubicacion = vl.id_ubicacion
        LEFT JOIN public.detalle_produccion dp ON dp.id_detalle_produccion = vl.id_detalle_produccion
        LEFT JOIN public.produccion pr ON pr.id_produccion = dp.id_produccion
        LEFT JOIN public.lotes lote_origen ON lote_origen.id_lote = pr.id_lote_origen
        LEFT JOIN public.detalle_compra dc
          ON dc.id_detalle_compra = COALESCE(vl.id_detalle_compra, lote_origen.id_detalle_compra)
        WHERE vl.id_producto = $1
-       ORDER BY vl.id_lote DESC`,
+       ORDER BY vl.fecha_vencimiento ASC, vl.id_lote ASC`,
       [request.params.id]
     )
     response.status(200).json({ data: result.rows })

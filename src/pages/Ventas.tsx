@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Ic, P, Field, Modal, ConfirmModal, Pagination, SearchBar, ViewBtn, TrashBtn, FilterPopover } from '@/components/shared'
+import { Ic, P, Field, Modal, ConfirmModal, Pagination, SearchBar, ViewBtn, TrashBtn, FilterPopover, EditBtn } from '@/components/shared'
 import { useToast } from '@/components/toast'
 import { api, isApiMode } from '@/data/services/api'
 import { useAuth } from '@/data/services/authContext'
 import type { Row } from '@/modules/resources'
-import { formatDate } from '@/data/format'
+import { formatDate, productoNombre } from '@/data/format'
+import { ProductImage } from '@/components/ProductImage'
 
 interface OrderItem {
   id_producto: number
@@ -12,9 +13,13 @@ interface OrderItem {
   cantidad: number
   unidad_medida: string
   precio_unitario: number
-  id_lote: number
-  lote_numero: string
   subtotal: number
+}
+
+interface PaymentEntry {
+  metodo_pago: string
+  monto: string
+  referencia: string
 }
 
 const cop = (v: number) =>
@@ -23,16 +28,7 @@ const cop = (v: number) =>
 function getPrice(product: Row, tipoVenta: string): number {
   const detal = Number(product.precio_venta_detal) || 0
   const mayorista = Number(product.precio_venta_mayorista) || 0
-  if (tipoVenta === 'Mayorista') {
-    if (mayorista > 0 && mayorista < detal) return mayorista
-    return Math.round(detal * 0.88)
-  }
-  return detal
-}
-
-function getCatName(id: number, categorias: Row[]): string {
-  const cat = categorias.find(c => Number(c.id_categoria) === id)
-  return cat ? String(cat.nombre_categoria) : `Cat. ${id}`
+  return tipoVenta === 'Mayorista' ? mayorista : detal
 }
 
 export function VentasPage() {
@@ -51,8 +47,6 @@ export function VentasPage() {
   const [selectedTipo, setSelectedTipo] = useState('')
   const [selectedProducto, setSelectedProducto] = useState<Row | null>(null)
   const [cantidad, setCantidad] = useState('')
-  const [lotesForProduct, setLotesForProduct] = useState<Row[]>([])
-  const [selectedLote, setSelectedLote] = useState('')
 
   // Order state
   const [orderItems, setOrderItems] = useState<OrderItem[]>([])
@@ -60,9 +54,7 @@ export function VentasPage() {
   const [tipoVenta, setTipoVenta] = useState('Detal')
   const [descuento, setDescuento] = useState('')
   const [iva, setIva] = useState('')
-  const [pagoMetodo, setPagoMetodo] = useState('Efectivo')
-  const [pagoMonto, setPagoMonto] = useState('')
-  const [pagoReferencia, setPagoReferencia] = useState('')
+  const [payments, setPayments] = useState<PaymentEntry[]>([{ metodo_pago: 'Efectivo', monto: '', referencia: '' }])
   const [saving, setSaving] = useState(false)
 
   // ── Historial state ────────────────────────────────────────────────────────
@@ -83,6 +75,7 @@ export function VentasPage() {
   const [detailLines, setDetailLines] = useState<Row[]>([])
   const [detailPagos, setDetailPagos] = useState<Row[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
+  const [editingSale, setEditingSale] = useState<Row | null>(null)
 
   // Anular venta
   const [anularRow, setAnularRow] = useState<Row | null>(null)
@@ -90,7 +83,14 @@ export function VentasPage() {
   const [anulando, setAnulando] = useState(false)
 
   const canRegister = hasPermission('Ventas', 'Registrar')
+  const canUpdate = hasPermission('Ventas', 'Editar')
   const canAnular = hasPermission('Ventas', 'Anular')
+  const canView = hasPermission('Ventas', 'Ver detalle')
+  const canFilter = hasPermission('Ventas', 'Filtrar')
+
+  useEffect(() => {
+    if (!canRegister && !editingSale) setView('historial')
+  }, [canRegister, editingSale])
 
   // ── Load POS data ──────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -127,14 +127,6 @@ export function VentasPage() {
   useEffect(() => { loadData() }, [loadData])
   useEffect(() => { if (view === 'historial') loadVentas() }, [view, loadVentas])
 
-  const loadLotes = useCallback(async (productId: number) => {
-    try {
-      const lotes = await api.getVLotes({ id_producto: String(productId) })
-      setLotesForProduct(lotes.filter(l => l.estado === true && Number(l.cantidad_disponible) > 0))
-    } catch { setLotesForProduct([]) }
-    setSelectedLote('')
-  }, [])
-
   // ── Open detail ────────────────────────────────────────────────────────────
   const openDetail = async (row: Row) => {
     setDetailRow(row); setDetailLoading(true)
@@ -148,28 +140,94 @@ export function VentasPage() {
     finally { setDetailLoading(false) }
   }
 
+  const openEditSale = async (row: Row) => {
+    try {
+      const [details, currentPayments] = await Promise.all([
+        api.list<Row>('detalle_venta', { id_venta: String(row.id_venta) }),
+        api.list<Row>('pagos_venta', { id_venta: String(row.id_venta) }),
+      ])
+      const saleType = String(row.tipo_venta)
+      const order = details.map(line => {
+        const product = productos.find(item => Number(item.id_producto) === Number(line.id_producto))
+        const quantity = Number(line.cantidad)
+        const unitPrice = product ? getPrice(product, saleType) : Number(line.precio_unitario)
+        return {
+          id_producto: Number(line.id_producto),
+          producto_nombre: product
+            ? productoNombre(product, categorias)
+            : `Producto ${String(line.id_producto)}`,
+          cantidad: quantity,
+          unidad_medida: String(line.unidad_medida),
+          precio_unitario: unitPrice,
+          subtotal: quantity * unitPrice,
+        }
+      })
+      if (!order.length) {
+        toast('error', 'No se puede editar', 'La venta no tiene líneas de producto registradas.')
+        return
+      }
+      setEditingSale(row)
+      setOrderItems(order)
+      setSelectedProducto(null)
+      setSelectedTipo(String(productos.find(product => Number(product.id_producto) === order[0].id_producto)?.tipo_producto ?? 'Fresca'))
+      setSelectedCliente(String(row.numero_documento))
+      setTipoVenta(saleType)
+      setDescuento(String(row.descuento_total ?? 0))
+      setIva(String(row.iva ?? 0))
+      const loadedPayments = currentPayments.map(payment => ({
+        metodo_pago: String(payment.metodo_pago),
+        monto: String(payment.monto_recibido ?? ''),
+        referencia: String(payment.referencia ?? ''),
+      }))
+      setPayments(loadedPayments.length === 1
+        ? [{ ...loadedPayments[0], monto: '' }]
+        : loadedPayments.length ? loadedPayments : [{ metodo_pago: 'Efectivo', monto: '', referencia: '' }])
+      setView('pos')
+    } catch (err) {
+      toast('error', 'No se pudo cargar la venta', err instanceof Error ? err.message : 'Error')
+    }
+  }
+
+  const updatePayment = (index: number, field: keyof PaymentEntry, value: string) => {
+    setPayments(previous => previous.map((payment, paymentIndex) =>
+      paymentIndex === index ? { ...payment, [field]: value } : payment))
+  }
+
+  const addPayment = () => {
+    if (payments.length >= 2) return
+    const nextMethod = payments[0]?.metodo_pago === 'Efectivo' ? 'Transferencia' : 'Efectivo'
+    setPayments(previous => [...previous, { metodo_pago: nextMethod, monto: '', referencia: '' }])
+  }
+
+  const changeTipoVenta = (saleType: string) => {
+    setTipoVenta(saleType)
+    setOrderItems(previous => previous.map(item => {
+      const product = productos.find(row => Number(row.id_producto) === item.id_producto)
+      const unitPrice = product ? getPrice(product, saleType) : item.precio_unitario
+      return { ...item, precio_unitario: unitPrice, subtotal: item.cantidad * unitPrice }
+    }))
+  }
+
+  const cancelEditSale = () => {
+    setEditingSale(null)
+    setOrderItems([])
+    setSelectedCliente('')
+    setSelectedProducto(null)
+    setDescuento('')
+    setIva('')
+    setPayments([{ metodo_pago: 'Efectivo', monto: '', referencia: '' }])
+    setView('historial')
+  }
+
   // ── Anular venta ───────────────────────────────────────────────────────────
   const doAnular = async () => {
     if (!anularRow || !motivo.trim()) return
     setAnulando(true)
     try {
-      // Restore lote stock before marking as anulada
-      try {
-        const lineas = await api.list<Row>('detalle_venta', { id_venta: String(anularRow.id_venta) })
-        for (const linea of lineas) {
-          const loteData = await api.getById<Row>('lotes', linea.id_lote as number)
-          const restored = Number(loteData.cantidad_disponible) + Number(linea.cantidad)
-          await api.update('lotes', linea.id_lote as number, { cantidad_disponible: restored })
-        }
-      } catch { /* non-fatal: annulment still proceeds */ }
-
-      await api.update('ventas', anularRow.id_venta as number, {
-        estado: false,
-        motivo_anulacion: motivo.trim(),
-      })
+      await api.create(`ventas/${anularRow.id_venta}/anular`, { motivo_anulacion: motivo.trim() })
       toast('success', 'Venta anulada', 'La venta fue anulada correctamente.')
       setAnularRow(null); setMotivo('')
-      loadVentas()
+      await Promise.all([loadVentas(), loadData()])
     } catch (err) {
       toast('error', 'No se pudo anular', err instanceof Error ? err.message : 'Error')
     } finally { setAnulando(false) }
@@ -190,14 +248,12 @@ export function VentasPage() {
     const precio = getPrice(p, tipoVenta)
     const cant = Number(cantidad)
     const unit = String(p.unidad_medida) || 'kg'
-    const loteId = selectedLote ? Number(selectedLote) : 0
-    const lote = lotesForProduct.find(l => Number(l.id_lote) === loteId)
     setOrderItems(prev => [...prev, {
-      id_producto: Number(p.id_producto), producto_nombre: `${getCatName(Number(p.id_categoria), categorias)} ${p.presentacion}`,
+      id_producto: Number(p.id_producto), producto_nombre: productoNombre(p, categorias),
       cantidad: cant, unidad_medida: unit, precio_unitario: precio,
-      id_lote: loteId, lote_numero: lote ? String(lote.numero_lote) : '', subtotal: cant * precio,
+      subtotal: cant * precio,
     }])
-    setCantidad(''); setSelectedLote(''); setSelectedProducto(null)
+    setCantidad(''); setSelectedProducto(null)
   }
 
   const removeFromOrder = (idx: number) => setOrderItems(prev => prev.filter((_, i) => i !== idx))
@@ -216,42 +272,40 @@ export function VentasPage() {
   // ── Registrar venta ────────────────────────────────────────────────────────
   const registrarVenta = async () => {
     if (!user || !selectedCliente || orderItems.length === 0) return
-    const sinLote = orderItems.filter(item => !item.id_lote)
-    if (sinLote.length > 0) {
-      toast('error', 'Lote requerido', `Selecciona un lote para: ${sinLote.map(i => i.producto_nombre).join(', ')}.`)
-      return
-    }
-    const montoRecibido = Number(pagoMonto) || total
-    if (montoRecibido <= 0) {
-      toast('error', 'Monto inválido', 'El monto recibido debe ser mayor a cero.')
+    const paymentPayload = payments.map(payment => ({
+      metodo_pago: payment.metodo_pago,
+      monto: Number(payment.monto) || (payments.length === 1 ? total : 0),
+      referencia: payment.referencia.trim() || undefined,
+    }))
+    const paid = paymentPayload.reduce((sum, payment) => sum + payment.monto, 0)
+    if (paymentPayload.some(payment => payment.monto <= 0) || Math.abs(paid - total) > 0.01) {
+      toast('error', 'Pagos inválidos', 'Los pagos deben ser positivos y sumar el total de la venta.')
       return
     }
     setSaving(true)
     try {
-      const venta = await api.create<Row>('ventas', {
-        numero_documento: selectedCliente, id_usuario: user.id_usuario, tipo_venta: tipoVenta,
-        iva: Number(iva) || 0, descuento_total: Number(descuento) || 0, total_pagar: total, estado: true,
-      })
-      const ventaId = venta.id_venta as number
-      for (const item of orderItems) {
-        await api.create('detalle_venta', {
-          id_venta: ventaId, id_producto: item.id_producto, id_lote: item.id_lote,
-          cantidad: item.cantidad, unidad_medida: item.unidad_medida, precio_unitario: item.precio_unitario,
-        })
-        // Deduct stock from lote
-        try {
-          const loteData = await api.getById<Row>('lotes', item.id_lote)
-          const nuevo = Math.max(0, Number(loteData.cantidad_disponible) - item.cantidad)
-          await api.update('lotes', item.id_lote, { cantidad_disponible: nuevo })
-        } catch { /* non-fatal: stock update failure does not roll back the sale */ }
+      const payload = {
+        numero_documento: selectedCliente,
+        tipo_venta: tipoVenta,
+        iva: Number(iva) || 0,
+        descuento_total: Number(descuento) || 0,
+        lines: orderItems.map(item => ({ id_producto: item.id_producto, cantidad: item.cantidad })),
+        pagos: paymentPayload,
       }
-      const pagoPayload: Record<string, unknown> = { id_venta: ventaId, metodo_pago: pagoMetodo, monto_recibido: montoRecibido }
-      if (pagoReferencia.trim()) pagoPayload.referencia = pagoReferencia.trim()
-      await api.create('pagos_venta', pagoPayload)
-      toast('success', 'Venta registrada', 'La venta se guardó correctamente.')
-      setOrderItems([]); setSelectedCliente(''); setDescuento(''); setIva(''); setPagoMonto(''); setPagoReferencia('')
+      if (editingSale) {
+        await api.update('ventas', editingSale.id_venta as number, payload)
+      } else {
+        await api.create<Row>('ventas', payload)
+      }
+      toast('success', editingSale ? 'Venta actualizada' : 'Venta registrada', 'La venta y su trazabilidad se guardaron correctamente.')
+      const wasEditing = Boolean(editingSale)
+      setEditingSale(null)
+      setOrderItems([]); setSelectedCliente(''); setDescuento(''); setIva('')
+      setPayments([{ metodo_pago: 'Efectivo', monto: '', referencia: '' }])
+      setView(wasEditing ? 'historial' : 'pos')
+      await loadData()
     } catch (err) {
-      toast('error', 'No se pudo registrar la venta', err instanceof Error ? err.message : 'Error')
+      toast('error', editingSale ? 'No se pudo actualizar la venta' : 'No se pudo registrar la venta', err instanceof Error ? err.message : 'Error')
     } finally { setSaving(false) }
   }
 
@@ -273,8 +327,8 @@ export function VentasPage() {
     return (
       <section>
         <div className="page-toolbar">
-          <SearchBar placeholder="Buscar por cliente..." value={histQuery} onChange={v => { setHistQuery(v); setHistPage(1) }} />
-          <FilterPopover activeCount={histActiveFilters} onClear={clearHistFilters}>
+          {canFilter && <SearchBar placeholder="Buscar por cliente..." value={histQuery} onChange={v => { setHistQuery(v); setHistPage(1) }} />}
+          {canFilter && <FilterPopover activeCount={histActiveFilters} onClear={clearHistFilters}>
             <Field label="Tipo de venta">
               <select className="select" value={histTipoVenta} onChange={e => { setHistTipoVenta(e.target.value); setHistPage(1) }}>
                 <option value="">Todos</option>
@@ -295,10 +349,10 @@ export function VentasPage() {
             <Field label="Fecha hasta">
               <input className="input" type="date" value={histFechaHasta} onChange={e => { setHistFechaHasta(e.target.value); setHistPage(1) }} />
             </Field>
-          </FilterPopover>
-          <button className="btn-secondary" onClick={() => setView('pos')}>
+          </FilterPopover>}
+          {(canRegister || editingSale) && <button className="btn-secondary" onClick={() => setView('pos')}>
             <Ic d={P.arrowR} size={14} style={{ transform: 'rotate(180deg)' }} /> Volver al POS
-          </button>
+          </button>}
           {histError && <div className="error-banner"><span><Ic d={P.alert} size={14} /> {histError}</span><button className="btn-secondary" onClick={loadVentas}>Reintentar</button></div>}
         </div>
 
@@ -320,7 +374,8 @@ export function VentasPage() {
                       <td><span className={`badge ${v.estado ? 'badge-green' : 'badge-red'}`}>{v.estado ? 'Registrada' : 'Anulada'}</span></td>
                       <td>
                         <div className="actions">
-                          <ViewBtn onClick={() => openDetail(v)} />
+                          {canView && <ViewBtn onClick={() => openDetail(v)} />}
+                          {canUpdate && Boolean(v.estado) && <EditBtn onClick={() => openEditSale(v)} />}
                           {canAnular && Boolean(v.estado) && (
                             <button className="btn-ghost" title="Anular venta" style={{ color: 'var(--action-trash)' }} onClick={() => { setAnularRow(v); setMotivo('') }}>
                               <Ic d={P.ban} size={15} /> <span>Anular venta</span>
@@ -430,9 +485,10 @@ export function VentasPage() {
     <section>
       <div className="page-toolbar">
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, marginRight: 'auto' }}>Punto de venta</h2>
-        <button className="btn-secondary" onClick={() => setView('historial')}>
-          <Ic d={P.clipboard} size={14} /> Historial
-        </button>
+        {(canRegister || editingSale) && <button className="btn-secondary" onClick={editingSale ? cancelEditSale : () => setView('historial')}>
+          <Ic d={editingSale ? P.arrowR : P.clipboard} size={14} style={editingSale ? { transform: 'rotate(180deg)' } : undefined} />
+          {editingSale ? 'Cancelar edición' : 'Historial'}
+        </button>}
       </div>
 
       {loading ? (
@@ -444,7 +500,7 @@ export function VentasPage() {
           <button className="btn-secondary" onClick={loadData}>Reintentar</button>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 20, alignItems: 'start' }}>
+        <div className="pos-layout">
           <div>
             {/* Section 1 */}
             <div className="card" style={{ padding: 20, marginBottom: 16 }}>
@@ -452,7 +508,7 @@ export function VentasPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {['Fresca', 'Congelada'].map(tipo => (
                   <div key={tipo} className="pos-card" style={{ border: selectedTipo === tipo ? '2px solid var(--primary)' : undefined, background: selectedTipo === tipo ? 'var(--primary-light)' : undefined }}
-                    onClick={() => { setSelectedTipo(tipo); setSelectedProducto(null); setCantidad(''); setSelectedLote('') }}>
+                    onClick={() => { setSelectedTipo(tipo); setSelectedProducto(null); setCantidad('') }}>
                     <div style={{ fontSize: 28, marginBottom: 4 }}>{tipo === 'Fresca' ? '🍓' : '🧊'}</div>
                     <strong>{tipo === 'Fresca' ? 'Fresa Fresca' : 'Fresa Congelada'}</strong>
                   </div>
@@ -468,8 +524,9 @@ export function VentasPage() {
                   {availableProducts.map(p => (
                     <div key={String(p.id_producto)} className="pos-card"
                       style={{ border: selectedProducto?.id_producto === p.id_producto ? '2px solid var(--primary)' : undefined, background: selectedProducto?.id_producto === p.id_producto ? 'var(--primary-light)' : undefined }}
-                      onClick={() => { setSelectedProducto(p); setCantidad(''); setSelectedLote(''); loadLotes(Number(p.id_producto)) }}>
-                      <strong>{getCatName(Number(p.id_categoria), categorias)}</strong>
+                      onClick={() => { setSelectedProducto(p); setCantidad('') }}>
+                      <ProductImage src={p.imagen_url} alt={String(p.presentacion ?? 'Producto')} className="product-image--card" />
+                      <strong>{productoNombre(p, categorias)}</strong>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{cop(getPrice(p, tipoVenta))} / {String(p.unidad_medida)}</div>
                       <div style={{ fontSize: 11, color: 'var(--text-light)', marginTop: 2 }}>Stock: {Number(p.stock_vendible) || 0} {String(p.unidad_medida)}</div>
                     </div>
@@ -491,23 +548,13 @@ export function VentasPage() {
                     <input className="input" value={String(selectedProducto.unidad_medida) || 'kg'} disabled />
                   </Field>
                 </div>
-                <Field label="Lote">
-                  <select className="select" value={selectedLote} onChange={e => setSelectedLote(e.target.value)}>
-                    <option value="">Seleccione un lote…</option>
-                    {lotesForProduct.map(l => (
-                      <option key={String(l.id_lote)} value={String(l.id_lote)}>
-                        {String(l.numero_lote)} ({Number(l.cantidad_disponible)} {String(selectedProducto.unidad_medida)})
-                      </option>
-                    ))}
-                  </select>
-                  {!lotesForProduct.length && <small style={{ color: 'var(--amber)' }}>No hay lotes disponibles para este producto.</small>}
-                </Field>
+                <small className="muted">El sistema asignará automáticamente los lotes disponibles por vencimiento (FEFO).</small>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
                   <div>
                     <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Subtotal: </span>
                     <strong style={{ fontSize: 16 }}>{cop(itemSubtotal)}</strong>
                   </div>
-                  <button className="btn-primary" disabled={!cantidad || Number(cantidad) <= 0 || (lotesForProduct.length > 0 && !selectedLote)} onClick={addToOrder}>
+                  <button className="btn-primary" disabled={!cantidad || Number(cantidad) <= 0} onClick={addToOrder}>
                     <Ic d={P.plus} size={14} /> Agregar a la orden
                   </button>
                 </div>
@@ -517,7 +564,9 @@ export function VentasPage() {
 
           {/* ── Order panel ───────────────────────────────────────────────────── */}
           <div className="card" style={{ padding: 20, position: 'sticky', top: 20 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 700 }}>Orden activa</h3>
+            <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 700 }}>
+              {editingSale ? `Editar venta V-${String(editingSale.id_venta).padStart(4, '0')}` : 'Orden activa'}
+            </h3>
             <Field label="Cliente">
               <select className="select" value={selectedCliente} onChange={e => setSelectedCliente(e.target.value)}>
                 <option value="">Seleccione un cliente…</option>
@@ -525,7 +574,7 @@ export function VentasPage() {
               </select>
             </Field>
             <Field label="Tipo de venta">
-              <select className="select" value={tipoVenta} onChange={e => setTipoVenta(e.target.value)}>
+              <select className="select" value={tipoVenta} onChange={e => changeTipoVenta(e.target.value)}>
                 <option value="Detal">Detal</option>
                 <option value="Mayorista">Mayorista</option>
               </select>
@@ -555,7 +604,6 @@ export function VentasPage() {
                       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{item.unidad_medida} × {cop(item.precio_unitario)}</span>
                       <strong style={{ fontSize: 12, marginLeft: 'auto' }}>{cop(item.subtotal)}</strong>
                     </div>
-                    {item.lote_numero && <small style={{ color: 'var(--text-light)', fontSize: 11 }}>Lote: {item.lote_numero}</small>}
                   </div>
                 ))}
               </div>
@@ -580,27 +628,37 @@ export function VentasPage() {
               </div>
             </div>
             <div style={{ borderTop: '1px solid var(--border)', margin: '12px 0' }} />
-            <Field label="Método de pago">
-              <select className="select" value={pagoMetodo} onChange={e => setPagoMetodo(e.target.value)}>
-                <option value="Efectivo">Efectivo</option>
-                <option value="Transferencia">Transferencia</option>
-              </select>
-            </Field>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <Field label="Monto recibido">
-                <input className="input" type="number" min={0} step={0.01} value={pagoMonto} onChange={e => setPagoMonto(e.target.value)} placeholder={String(total)} />
-              </Field>
-              <Field label="Referencia">
-                <input className="input" type="text" maxLength={40} value={pagoReferencia} onChange={e => setPagoReferencia(e.target.value)} placeholder="N° transferencia" />
-              </Field>
+            <div className="pos-payment-list">
+              {payments.map((payment, index) => (
+                <div className="pos-payment-entry" key={index}>
+                  <Field label={`Método de pago ${payments.length > 1 ? index + 1 : ''}`}>
+                    <select className="select" value={payment.metodo_pago} onChange={e => updatePayment(index, 'metodo_pago', e.target.value)}>
+                      <option value="Efectivo">Efectivo</option>
+                      <option value="Transferencia">Transferencia</option>
+                    </select>
+                  </Field>
+                  <Field label="Monto aplicado">
+                    <input className="input" type="number" min={0} step={0.01} value={payment.monto} onChange={e => updatePayment(index, 'monto', e.target.value)} placeholder={payments.length === 1 ? String(total) : 'Monto'} />
+                  </Field>
+                  <Field label="Referencia">
+                    <input className="input" type="text" maxLength={40} value={payment.referencia} onChange={e => updatePayment(index, 'referencia', e.target.value)} placeholder="N° transferencia" />
+                  </Field>
+                  {payments.length > 1 && <button className="btn-ghost" title="Quitar pago" onClick={() => setPayments(previous => previous.filter((_, paymentIndex) => paymentIndex !== index))}><Ic d={P.trash} size={14} /></button>}
+                </div>
+              ))}
+              {payments.length === 1 && <button className="btn-secondary" type="button" onClick={addPayment}>Agregar pago mixto</button>}
             </div>
 
-            {canRegister ? (
+            {(editingSale ? canUpdate : canRegister) ? (
               <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 12 }} disabled={!selectedCliente || orderItems.length === 0 || saving} onClick={registrarVenta}>
-                {saving ? <><Ic d={P.sync} size={14} style={{ animation: 'spin 1s linear infinite' }} /> Registrando…</> : 'Registrar venta'}
+                {saving
+                  ? <><Ic d={P.sync} size={14} style={{ animation: 'spin 1s linear infinite' }} /> Guardando…</>
+                  : editingSale ? 'Guardar cambios' : 'Registrar venta'}
               </button>
             ) : (
-              <p className="muted" style={{ textAlign: 'center', fontSize: 12, marginTop: 12 }}>No tiene permiso para registrar ventas.</p>
+              <p className="muted" style={{ textAlign: 'center', fontSize: 12, marginTop: 12 }}>
+                {editingSale ? 'No tiene permiso para editar ventas.' : 'No tiene permiso para registrar ventas.'}
+              </p>
             )}
           </div>
         </div>

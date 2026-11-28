@@ -79,6 +79,7 @@ Recursos: `departamentos`, `municipios`, `ubicaciones`, `categorias`, `roles`, `
 
 ### Ventas
 - `POST /api/ventas` recibe cliente, tipo de venta, IVA, descuento, `lines: [{ id_producto, cantidad }]` y `pagos: [{ metodo_pago, monto, referencia? }]`. Selecciona lotes FEFO, guarda cada detalle vinculado a su lote y descuenta existencias dentro de una transacción SQL.
+- `PUT /api/ventas/:id` usa el mismo formato y reemplaza líneas/pagos en una transacción, devolviendo las cantidades anteriores a sus lotes y reasignando stock FEFO. No permite editar una venta anulada.
 - `POST /api/ventas/:id/anular` recibe `{ "motivo_anulacion": "..." }`; revierte cantidades por lote y actualiza estado/motivo dentro de una transacción. No se permite modificar ventas mediante el CRUD genérico.
 - Los recursos `detalle_venta` y `pagos_venta` son de solo lectura para evitar registrar líneas/pagos sin el flujo transaccional.
 

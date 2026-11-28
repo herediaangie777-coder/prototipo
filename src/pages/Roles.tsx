@@ -3,7 +3,7 @@ import { ConfirmModal, EditBtn, Field, FilterPopover, Ic, Modal, P, Pagination, 
 import { useToast } from '@/components/toast'
 import { api, isApiMode } from '@/data/services/api'
 import { useAuth } from '@/data/services/authContext'
-import { moduleActions } from '@/data/moduleActions'
+import { moduleActions, toggleModulePermission } from '@/data/moduleActions'
 
 export function RolesPage() {
   const { hasPermission, hasModuleAccess } = useAuth()
@@ -33,6 +33,7 @@ export function RolesPage() {
   const canCreate = hasPermission('Roles y permisos', 'Registrar')
   const canUpdate = hasPermission('Roles y permisos', 'Editar')
   const canView = hasPermission('Roles y permisos', 'Ver detalle')
+  const canFilter = hasPermission('Roles y permisos', 'Filtrar')
   const canChangeState = hasPermission('Roles y permisos', 'Cambiar estado')
   const canDelete = hasPermission('Roles y permisos', 'Eliminar')
 
@@ -78,8 +79,11 @@ export function RolesPage() {
     setName(item?.nombre_rol ?? '')
     setEditable(allowEdit)
     setRoleState(item?.estado ?? true)
+    const isSuperAdmin = item?.id_rol === 1 || item?.nombre_rol === 'Super Administrador'
     const perms = item
-      ? rolesXPermisos.filter(p => p.id_rol === item.id_rol).map(({ id_permiso, id_privilegio }) => ({ id_permiso, id_privilegio }))
+      ? isSuperAdmin
+        ? permisosPrivilegios.map(({ id_permiso, id_privilegio }) => ({ id_permiso, id_privilegio }))
+        : rolesXPermisos.filter(p => p.id_rol === item.id_rol).map(({ id_permiso, id_privilegio }) => ({ id_permiso, id_privilegio }))
       : []
     setSelectedPerms(perms)
     setFormErrors({})
@@ -87,26 +91,16 @@ export function RolesPage() {
   }
 
   const toggle = (id_permiso: number, id_privilegio: number) => {
-    const exists = selectedPerms.some(row => row.id_permiso === id_permiso && row.id_privilegio === id_privilegio)
+    if (role?.id_rol === 1 || role?.nombre_rol === 'Super Administrador') return
     const consultId = privilegios.find(item => item.nombre_privilegio === 'Consultar')?.id_privilegio
-    let next = exists
-      ? selectedPerms.filter(row => row.id_permiso !== id_permiso || row.id_privilegio !== id_privilegio)
-      : [...selectedPerms, { id_permiso, id_privilegio }]
-    if (id_privilegio === consultId && exists) next = next.filter(row => row.id_permiso !== id_permiso)
-    if (id_privilegio !== consultId && !exists && consultId !== undefined
-      && permisosPrivilegios.some(pair => pair.id_permiso === id_permiso && pair.id_privilegio === consultId)
-      && !next.some(row => row.id_permiso === id_permiso && row.id_privilegio === consultId)) {
-      next.push({ id_permiso, id_privilegio: consultId })
-    }
-    if (id_privilegio !== consultId && exists
-      && !next.some(row => row.id_permiso === id_permiso && row.id_privilegio !== consultId)) {
-      next = next.filter(row => row.id_permiso !== id_permiso)
-    }
+    const validPairs = permisosPrivilegios.filter(pair => pair.id_permiso === id_permiso)
+    const next = toggleModulePermission(selectedPerms, validPairs, id_permiso, id_privilegio, consultId)
     setSelectedPerms(next)
     if (next.length) setFormErrors(errors => ({ ...errors, permissions: '' }))
   }
 
   const toggleRow = (permissionId: number) => {
+    if (role?.id_rol === 1 || role?.nombre_rol === 'Super Administrador') return
     const valid = permisosPrivilegios.filter(pair => pair.id_permiso === permissionId)
     const selected = valid.filter(pair => selectedPerms.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio === pair.id_privilegio)).length
     const add = selected < valid.length
@@ -175,8 +169,8 @@ export function RolesPage() {
   return (
     <section>
       <div className="page-toolbar">
-        {canView && <SearchBar placeholder="Buscar por nombre de rol..." value={search} onChange={value => { setSearch(value); setPage(1) }} />}
-        {canView && <FilterPopover activeCount={statusFilter ? 1 : 0} onClear={() => { setStatusFilter(''); setPage(1) }}>
+        {canFilter && <SearchBar placeholder="Buscar por nombre de rol..." value={search} onChange={value => { setSearch(value); setPage(1) }} />}
+        {canFilter && <FilterPopover activeCount={statusFilter ? 1 : 0} onClear={() => { setStatusFilter(''); setPage(1) }}>
           <Field label="Estado"><select className="select" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(1) }}><option value="">Todos los estados</option><option value="true">Activo</option><option value="false">Inactivo</option></select></Field>
         </FilterPopover>}
         {canCreate && <button className="btn-primary" onClick={() => open()}><Ic d={P.plus} size={15} /> Registrar rol</button>}
@@ -230,13 +224,13 @@ export function RolesPage() {
               <header className="permission-card-header">
                 <h3>{permission.nombre_permiso}</h3>
                 <span className="permission-count">{selectedCount}/{validPairs.length}</span>
-                <button type="button" className="link-button" disabled={!editable || !validPairs.length} onClick={() => toggleRow(permission.id_permiso)}>
+                <button type="button" className="link-button" disabled={!editable || !validPairs.length || role?.id_rol === 1 || role?.nombre_rol === 'Super Administrador'} onClick={() => toggleRow(permission.id_permiso)}>
                   {selectedCount === validPairs.length && validPairs.length > 0 ? 'Quitar todo' : 'Marcar todo'}
                 </button>
               </header>
               <div className="permission-card-actions">{validPairs.map(({ pair, privilege }) => (
                 <label className="permission-check" key={pair.id_privilegio}>
-                  <input type="checkbox" disabled={!editable} checked={selectedPerms.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio === pair.id_privilegio)} onChange={() => toggle(pair.id_permiso, pair.id_privilegio)} />
+                  <input type="checkbox" disabled={!editable || role?.id_rol === 1 || role?.nombre_rol === 'Super Administrador'} checked={selectedPerms.some(item => item.id_permiso === pair.id_permiso && item.id_privilegio === pair.id_privilegio)} onChange={() => toggle(pair.id_permiso, pair.id_privilegio)} />
                   <span>{privilege.nombre_privilegio === 'Consultar' ? 'Consultar (acceso al módulo)' : privilege.nombre_privilegio}</span>
                 </label>
               ))}</div>

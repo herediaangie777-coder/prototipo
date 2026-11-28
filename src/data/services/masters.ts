@@ -106,17 +106,29 @@ export function saveMaster(
       if (!name) throw new Error('Este campo es obligatorio')
       if (!draft.categorias.some(row => row.id_categoria === categoryId && row.estado)) throw new Error('Seleccione una categoría activa.')
       if (input.tipo_producto !== 'Fresca' && input.tipo_producto !== 'Congelada') throw new Error('Seleccione un tipo de producto válido.')
-      if (draft.productos.some(row => row.id_categoria === categoryId && row.tipo_producto === input.tipo_producto && row.presentacion.toLowerCase() === name.toLowerCase() && row.id_producto !== Number(id))) throw new Error('Ya existe un producto registrado con esa variante.')
       const prices = [input.precio_compra, input.precio_venta_detal, input.precio_venta_mayorista, input.stock_minimo].map(Number)
       if (prices.some(value => !Number.isFinite(value) || value < 0)) throw new Error('Los valores del producto deben ser mayores o iguales a cero.')
       const weight = input.tipo_producto === 'Congelada' ? Number(input.peso_unidad_kg) : null
       if (input.tipo_producto === 'Congelada' && (!Number.isFinite(weight) || weight! <= 0)) throw new Error('El peso por unidad es obligatorio y debe ser mayor a cero para el producto congelado.')
       const previous = id ? draft.productos.find(row => row.id_producto === Number(id)) : undefined
       if (id && !previous) throw new Error('No se encontró el producto.')
+      const unit: 'kg' | 'bolsa' = input.tipo_producto === 'Fresca' ? 'kg' : 'bolsa'
+      if (draft.productos.some(row => row.id_categoria === categoryId
+        && row.tipo_producto === input.tipo_producto
+        && row.presentacion.toLowerCase() === name.toLowerCase()
+        && row.unidad_medida === unit
+        && row.peso_unidad_kg === weight
+        && row.id_producto !== Number(id))) {
+        throw new Error('Ya existe un producto registrado con esa variante.')
+      }
+      const imageUrl = input.imagen_url === undefined
+        ? previous?.imagen_url ?? null
+        : input.imagen_url.trim() || null
       const row = {
         id_producto: previous?.id_producto ?? draft.nextIds.productos++, id_categoria: categoryId,
+        imagen_url: imageUrl,
         tipo_producto: input.tipo_producto as 'Fresca' | 'Congelada', presentacion: name,
-        unidad_medida: input.tipo_producto === 'Fresca' ? 'kg' as const : 'bolsa' as const,
+        unidad_medida: unit,
         peso_unidad_kg: weight, precio_compra: prices[0], precio_venta_detal: prices[1],
         precio_venta_mayorista: prices[2], stock_minimo: prices[3],
         estado: input.estado === undefined ? previous?.estado ?? true : input.estado === 'true',

@@ -1,6 +1,5 @@
 import { pool } from '../config/db.js'
 import { resources } from '../resources.js'
-import bcrypt from 'bcryptjs'
 
 function getResource(name) {
   return resources[name]
@@ -12,6 +11,19 @@ function resourceNotFound(response) {
 
 function recordNotFound(response) {
   response.status(404).json({ error: 'Registro no encontrado.' })
+}
+
+function validateUserPassword(resource, payload, isCreate) {
+  if (resource.table !== 'usuarios' || !payload.columns.includes('contrasenia')) return null
+
+  const password = payload.values[payload.columns.indexOf('contrasenia')]
+  if (typeof password !== 'string' || password.trim() === '') {
+    return isCreate ? 'La contraseña es obligatoria.' : 'La contraseña no puede estar vacía.'
+  }
+  if (Array.from(password).length > 20) {
+    return 'La contraseña no puede superar 20 caracteres.'
+  }
+  return null
 }
 
 function getPayload(resource, body, includeKey) {
@@ -106,13 +118,8 @@ export async function createResource(request, response, next) {
   const payload = getPayload(resource, request.body, true)
   if (payload.error) return response.status(400).json({ error: payload.error })
 
-  if (resource.table === 'usuarios' && payload.columns.includes('contrasenia')) {
-    const idx = payload.columns.indexOf('contrasenia')
-    if (!payload.values[idx] || String(payload.values[idx]).trim() === '') {
-      return response.status(400).json({ error: 'La contraseña es obligatoria.' })
-    }
-    payload.values[idx] = await bcrypt.hash(String(payload.values[idx]), 10)
-  }
+  const passwordError = validateUserPassword(resource, payload, true)
+  if (passwordError) return response.status(400).json({ error: passwordError })
 
   const placeholders = payload.columns.map((_, index) => `$${index + 1}`).join(', ')
   try {
@@ -134,13 +141,8 @@ export async function updateResource(request, response, next) {
   const payload = getPayload(resource, request.body, false)
   if (payload.error) return response.status(400).json({ error: payload.error })
 
-  if (resource.table === 'usuarios' && payload.columns.includes('contrasenia')) {
-    const idx = payload.columns.indexOf('contrasenia')
-    if (!payload.values[idx] || String(payload.values[idx]).trim() === '') {
-      return response.status(400).json({ error: 'La contraseña no puede estar vacía.' })
-    }
-    payload.values[idx] = await bcrypt.hash(String(payload.values[idx]), 10)
-  }
+  const passwordError = validateUserPassword(resource, payload, false)
+  if (passwordError) return response.status(400).json({ error: passwordError })
 
   const assignments = payload.columns.map((column, index) => `${column} = $${index + 1}`).join(', ')
   try {

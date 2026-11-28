@@ -93,11 +93,13 @@ describe('resource configs', () => {
     })
   })
 
-  it('usuario has contrasenia field with hiddenOnEdit', () => {
+  it('usuario requires a password on create and allows an optional password change capped at 20 characters', () => {
     const passField = usuarioResource.fields.find(f => f.key === 'contrasenia')
     expect(passField).toBeDefined()
-    expect(passField?.hiddenOnEdit).toBe(true)
+    expect(passField?.requiredOnCreate).toBe(true)
+    expect(passField?.hiddenOnEdit).not.toBe(true)
     expect(passField?.type).toBe('password')
+    expect(passField?.maxLength).toBe(20)
   })
 
   it('producto has fkEndpoint for categoria', () => {
@@ -106,6 +108,23 @@ describe('resource configs', () => {
     expect(catField?.fkEndpoint).toBe('categorias')
     expect(catField?.fkLabelKey).toBe('nombre_categoria')
     expect(catField?.fkValueKey).toBe('id_categoria')
+  })
+
+  it('producto accepts an optional image URL and renders an image column', () => {
+    const imageField = productoResource.fields.find(field => field.key === 'imagen_url')
+    expect(imageField?.type).toBe('url')
+    expect(imageField?.required).not.toBe(true)
+    expect(imageField?.sendNullIfEmpty).toBe(true)
+    expect(productoResource.columns.find(column => column.key === 'imagen_url')?.type).toBe('image')
+  })
+
+  it('producto list shows a full identity and purchase and sale prices without duplicate category/type columns', () => {
+    const productColumns = productoResource.columns
+    expect(productColumns.map(column => column.key)).toContain('precio_compra')
+    expect(productColumns.map(column => column.key)).toContain('precio_venta_detal')
+    expect(productColumns.map(column => column.key)).toContain('precio_venta_mayorista')
+    expect(productColumns.map(column => column.key)).not.toContain('tipo_producto')
+    expect(productColumns.map(column => column.key)).not.toContain('id_categoria')
   })
 
   it('producto keeps Estado after the other form fields', () => {
@@ -138,10 +157,11 @@ describe('resource configs', () => {
     expect(endpoints).toContain('lotes')
   })
 
-  it('produccion has subResource for detalle_produccion', () => {
-    expect(produccionResource.subResources).toBeDefined()
-    expect(produccionResource.subResources?.length).toBe(1)
-    expect(produccionResource.subResources?.[0].endpoint).toBe('detalle_produccion')
+  it('produccion chooses an output presentation and estimates units from net kilos', () => {
+    expect(produccionResource.fields.map(field => field.key)).toContain('id_producto_resultado')
+    expect(produccionResource.fields.map(field => field.key)).toContain('merma_estimada')
+    expect(produccionResource.columns.map(column => column.key)).toContain('cantidad_estimada_congelada')
+    expect(produccionResource.subResources).toBeUndefined()
   })
 
   it('venta has subResources for detalle_venta and pagos_venta', () => {

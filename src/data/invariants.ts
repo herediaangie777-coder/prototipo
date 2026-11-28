@@ -8,6 +8,7 @@ export function checkInvariants(state: AppState): void {
   const consumedByLot = new Map<number, number>()
   const validPairs = new Set<string>()
   const rolePairs = new Set<string>()
+  const productVariants = new Set<string>()
 
   for (const municipality of state.municipios) {
     if (!state.departamentos.some(row => row.id_departamento === municipality.id_departamento)) {
@@ -28,6 +29,15 @@ export function checkInvariants(state: AppState): void {
     if (!state.categorias.some(category => category.id_categoria === product.id_categoria)) {
       throw new Error(`Producto ${product.id_producto} sin categoría.`)
     }
+    const variant = [
+      product.id_categoria,
+      product.tipo_producto,
+      product.presentacion.trim().toLowerCase(),
+      product.unidad_medida,
+      product.peso_unidad_kg ?? 'sin-peso',
+    ].join(':')
+    if (productVariants.has(variant)) throw new Error(`Variante de producto duplicada: ${product.presentacion}.`)
+    productVariants.add(variant)
   }
   for (const row of state.permisos_privilegios) {
     if (!state.permisos.some(permission => permission.id_permiso === row.id_permiso)

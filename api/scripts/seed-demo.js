@@ -1,6 +1,5 @@
 import 'dotenv/config'
 import pg from 'pg'
-import bcrypt from 'bcryptjs'
 
 const { Pool } = pg
 
@@ -67,7 +66,7 @@ async function seed() {
       await client.query(
         `INSERT INTO public.usuarios (id_rol, nombre, apellido, correo, contrasenia, estado)
          VALUES ($1, $2, $3, $4, $5, true)`,
-        [rolResult.rows[0].id_rol, u.nombre, u.apellido, u.correo, await bcrypt.hash(u.contrasenia, 10)]
+        [rolResult.rows[0].id_rol, u.nombre, u.apellido, u.correo, u.contrasenia]
       )
       console.log(`Usuario ${u.correo} creado con rol ${u.rol}.`)
     }

@@ -16,13 +16,16 @@ import {
 import { useToast } from '@/components/toast'
 import { api, isApiMode } from '@/data/services/api'
 import { useAuth } from '@/data/services/authContext'
-import { formatDate } from '@/data/format'
+import { formatDate, productoNombre as buildProductName } from '@/data/format'
+import { localDateString } from '@/data/dates'
+import { estimateFrozenBags } from '@/data/production'
+import { ProductImage, safeImageUrl } from '@/components/ProductImage'
 import type { ResourceConfig, SubResourceConfig, ColumnConfig, FieldConfig, DetailFieldConfig, Row } from '@/modules/resources'
 import { CLIENTE_GENERAL_DOC } from '@/modules/resources'
 
 type FormValues = Record<string, string | number | boolean>
 type FormErrors = Record<string, string>
-type FkOption = { value: string | number; label: string }
+type FkOption = { value: string | number; label: string; data?: Row }
 type FkOptionsMap = Record<string, FkOption[]>
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
@@ -36,6 +39,9 @@ export function resolveFk(value: unknown, fkField: string | undefined, fkOptions
 }
 
 function formatValue(value: unknown, column: ColumnConfig, row: Row, fkOptions: FkOptionsMap): React.ReactNode {
+  if (column.type === 'image') {
+    return <ProductImage src={value} alt={String(row.presentacion ?? row.nombre_producto ?? 'Producto')} className="product-image--thumbnail" />
+  }
   if (value === null || value === undefined || value === '') return '—'
 
   const fkLabel = resolveFk(value, column.fkField, fkOptions)
@@ -90,11 +96,37 @@ function formatDetailValue(value: unknown, field: DetailFieldConfig, row: Row, f
 
 // ── FK option loader ──────────────────────────────────────────────────────────
 
-async function loadFkField(field: FieldConfig, filterParams?: Record<string, string>): Promise<FkOption[]> {
+async function loadFkField(
+  field: FieldConfig,
+  filterParams?: Record<string, string>,
+  categories?: Row[],
+): Promise<FkOption[]> {
   if (!field.fkEndpoint) return []
   try {
-    const items = await api.list<Row>(field.fkEndpoint, filterParams)
-    return items.map(item => ({ value: item[field.fkValueKey!] as string | number, label: String(item[field.fkLabelKey!]) }))
+    let items = await api.list<Row>(field.fkEndpoint, filterParams)
+    if (field.key === 'id_producto_resultado') {
+      items = items.filter(item => item.tipo_producto === 'Congelada' && Number(item.peso_unidad_kg) > 0)
+    }
+    const categoryRows = field.fkEndpoint === 'productos'
+      ? categories ?? await api.list<Row>('categorias')
+      : []
+    const sourceProducts = field.key === 'id_lote_origen'
+      ? await api.list<Row>('productos')
+      : []
+    return items.map(item => ({
+      value: item[field.fkValueKey!] as string | number,
+      data: field.key === 'id_lote_origen'
+        ? {
+          ...item,
+          id_categoria_origen: sourceProducts.find(product => String(product.id_producto) === String(item.id_producto))?.id_categoria,
+        }
+        : item,
+      label: field.fkLabelFormatter
+        ? field.fkLabelFormatter(item, categoryRows)
+        : field.fkEndpoint === 'productos'
+          ? buildProductName(item, categoryRows)
+          : String(item[field.fkLabelKey!]),
+    }))
   } catch {
     return []
   }
@@ -134,12 +166,25 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
   const [subErrors, setSubErrors] = useState<FormErrors>({})
   const [subConfirmDelete, setSubConfirmDelete] = useState<{ sub: SubResourceConfig; row: Row; parentId: string | number } | null>(null)
   const [subFkOptions, setSubFkOptions] = useState<FkOptionsMap>({})
+  const [productLots, setProductLots] = useState<Row[]>([])
+  const [productLotsLoading, setProductLotsLoading] = useState(false)
+  const [productLotsError, setProductLotsError] = useState<string | null>(null)
+  const [productionFreeze, setProductionFreeze] = useState<Row | null>(null)
+  const [productionCancel, setProductionCancel] = useState<Row | null>(null)
+  const [freezeLocations, setFreezeLocations] = useState<FkOption[]>([])
+  const [freezeValues, setFreezeValues] = useState({ unidades_obtenidas: '', id_ubicacion: '', fecha_vencimiento: '' })
+  const [productionActionError, setProductionActionError] = useState('')
+  const [productionActionLoading, setProductionActionLoading] = useState(false)
+  const [freezeLocationsLoading, setFreezeLocationsLoading] = useState(false)
 
   const canCreate = hasPermission(moduleName, 'Registrar')
   const canUpdate = hasPermission(moduleName, 'Editar')
   const canDelete = hasPermission(moduleName, 'Eliminar')
-  const canView = hasPermission(moduleName, 'Ver detalle') || hasPermission(moduleName, 'Consultar')
+  const canView = hasPermission(moduleName, 'Ver detalle')
+  const canFilter = hasPermission(moduleName, 'Filtrar')
   const canChangeState = hasPermission(moduleName, 'Cambiar estado')
+  const canFreeze = hasPermission(moduleName, 'Congelar')
+  const canAnular = hasPermission(moduleName, 'Anular')
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -182,9 +227,11 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
       config.subResources.forEach(sub => allFields.push(...sub.fields))
     }
     const selectFields = allFields.filter(f => f.type === 'select' && f.fkEndpoint)
+    const productFields = selectFields.some(field => field.fkEndpoint === 'productos')
+    const categories = productFields ? await api.list<Row>('categorias').catch(() => []) : []
     const options: FkOptionsMap = {}
     for (const field of selectFields) {
-      options[field.key] = await loadFkField(field)
+      options[field.key] = await loadFkField(field, undefined, categories)
     }
     setFkOptions(options)
     setSubFkOptions(options)
@@ -243,6 +290,21 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
   }, [data, query, filters, config.columns])
 
   const shown = filteredData.slice((page - 1) * pageSize, page * pageSize)
+  const selectedOutputProduct = fkOptions.id_producto_resultado?.find(
+    option => String(option.value) === String(values.id_producto_resultado ?? ''),
+  )?.data
+  const selectedSourceLot = fkOptions.id_lote_origen?.find(
+    option => String(option.value) === String(values.id_lote_origen ?? ''),
+  )?.data
+  const selectedSourceCategoryId = selectedSourceLot?.id_categoria_origen
+  const productionNetKg = Number(values.cantidad_a_procesar ?? 0) - Number(values.merma_estimada ?? 0)
+  const productionEstimatedBags = config.endpoint === 'produccion'
+    ? estimateFrozenBags(
+      Number(values.cantidad_a_procesar ?? 0),
+      Number(values.merma_estimada ?? 0),
+      Number(selectedOutputProduct?.peso_unidad_kg ?? 0),
+    )
+    : null
 
   // ── Form helpers ────────────────────────────────────────────────────────────
 
@@ -290,20 +352,32 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
   const openDetail = (row: Row) => {
     setSelected(row)
     setModal('detail')
+    if (config.endpoint === 'productos') {
+      setProductLots([])
+      setProductLotsLoading(true)
+      setProductLotsError(null)
+      api.getProductLots(Number(row[config.key]))
+        .then(setProductLots)
+        .catch(err => setProductLotsError(err instanceof Error ? err.message : 'No se pudieron cargar los lotes.'))
+        .finally(() => setProductLotsLoading(false))
+    }
     if (config.subResources && config.subResources.length > 0) {
       loadAllSubResources(row)
     }
   }
 
-  function validateForm(fieldList: FieldConfig[], formValues: FormValues): FormErrors {
+  function validateForm(fieldList: FieldConfig[], formValues: FormValues, isEdit = false): FormErrors {
     const newErrors: FormErrors = {}
     fieldList.forEach(field => {
       const value = formValues[field.key]
-      if (field.required && (value === '' || value === null || value === undefined)) {
+      if ((field.required || (field.requiredOnCreate && !isEdit)) && (value === '' || value === null || value === undefined)) {
         newErrors[field.key] = 'Este campo es obligatorio'
       }
       if (field.type === 'email' && value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(value))) {
         newErrors[field.key] = 'El correo electrónico no posee un formato válido.'
+      }
+      if (field.type === 'url' && value && !safeImageUrl(value)) {
+        newErrors[field.key] = 'Ingrese una URL de imagen válida que comience con http:// o https://.'
       }
       if (field.maxLength && String(value).length > field.maxLength) {
         newErrors[field.key] = `Máximo ${field.maxLength} caracteres`
@@ -337,7 +411,7 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
 
   const save = async () => {
     const fieldList = getVisibleFields(config.fields, modal === 'edit', values)
-    const newErrors = validateForm(fieldList, values)
+    const newErrors = validateForm(fieldList, values, modal === 'edit')
     if (Object.keys(newErrors).length) { setErrors(newErrors); return }
 
     let payload = buildPayload(fieldList, values)
@@ -421,7 +495,7 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
     if (!subModal) return
     const sub = subModal.sub
     const fieldList = getVisibleFields(sub.fields, subModal.mode === 'edit', subValues)
-    const newErrors = validateForm(fieldList, subValues)
+    const newErrors = validateForm(fieldList, subValues, subModal.mode === 'edit')
     if (Object.keys(newErrors).length) { setSubErrors(newErrors); return }
 
     const payload = buildPayload(fieldList, subValues)
@@ -457,6 +531,81 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
     setSubConfirmDelete(null)
   }
 
+  const openProductionFreeze = async (row: Row) => {
+    setProductionActionError('')
+    setProductionFreeze(row)
+    setFreezeLocationsLoading(true)
+    setFreezeValues({
+      unidades_obtenidas: row.cantidad_estimada_congelada == null ? '' : String(row.cantidad_estimada_congelada),
+      id_ubicacion: '',
+      fecha_vencimiento: '',
+    })
+    try {
+      const locations = await api.list<Row>('ubicaciones')
+      const activeLocations = locations
+        .filter(location => Boolean(location.estado))
+        .map(location => ({ value: location.id_ubicacion as number, label: String(location.nombre_ubicacion) }))
+      if (!activeLocations.length) throw new Error('No hay ubicaciones activas disponibles para el lote congelado.')
+      setFreezeLocations(activeLocations)
+    } catch (err) {
+      setProductionFreeze(null)
+      toast('error', 'No se pudo iniciar el congelado', err instanceof Error ? err.message : 'Error')
+    } finally {
+      setFreezeLocationsLoading(false)
+    }
+  }
+
+  const finishProduction = async () => {
+    if (!productionFreeze) return
+    const units = Number(freezeValues.unidades_obtenidas)
+    if (!Number.isSafeInteger(units) || units < 1) {
+      setProductionActionError('Ingrese una cantidad entera de bolsas mayor a cero.')
+      return
+    }
+    if (!freezeValues.id_ubicacion) {
+      setProductionActionError('Seleccione la ubicación del lote congelado.')
+      return
+    }
+    if (!freezeValues.fecha_vencimiento || freezeValues.fecha_vencimiento < localDateString()) {
+      setProductionActionError('Seleccione una fecha de vencimiento igual o posterior a hoy.')
+      return
+    }
+
+    setProductionActionLoading(true)
+    setProductionActionError('')
+    try {
+      await api.create(`produccion/${productionFreeze.id_produccion}/congelar`, {
+        unidades_obtenidas: units,
+        id_ubicacion: Number(freezeValues.id_ubicacion),
+        fecha_vencimiento: freezeValues.fecha_vencimiento,
+      })
+      toast('success', 'Producción congelada', 'Se registró el lote de salida y su disponibilidad.')
+      setProductionFreeze(null)
+      await loadData()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error'
+      setProductionActionError(message)
+      toast('error', 'No se pudo congelar la producción', message)
+    } finally {
+      setProductionActionLoading(false)
+    }
+  }
+
+  const cancelProduction = async () => {
+    if (!productionCancel) return
+    setProductionActionLoading(true)
+    try {
+      await api.create(`produccion/${productionCancel.id_produccion}/anular`, {})
+      toast('success', 'Producción anulada', 'Se reintegró al lote fresco la cantidad reservada.')
+      setProductionCancel(null)
+      await loadData()
+    } catch (err) {
+      toast('error', 'No se pudo anular la producción', err instanceof Error ? err.message : 'Error')
+    } finally {
+      setProductionActionLoading(false)
+    }
+  }
+
   const retry = () => loadData()
 
   // ── Access check ────────────────────────────────────────────────────────────
@@ -473,13 +622,11 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  const hasEstado = config.columns.some(c => c.key === 'estado')
-
   return (
     <section>
       <div className="page-toolbar">
-        {canView && <SearchBar placeholder={`Buscar ${config.title.toLowerCase()}...`} value={query} onChange={v => { setQuery(v); setPage(1) }} />}
-        {canView && config.filterableColumns && config.filterableColumns.length > 0 && (
+        {canFilter && <SearchBar placeholder={`Buscar ${config.title.toLowerCase()}...`} value={query} onChange={v => { setQuery(v); setPage(1) }} />}
+        {canFilter && config.filterableColumns && config.filterableColumns.length > 0 && (
           <FilterPopover activeCount={activeFilterCount} onClear={clearFilters}>
             {config.filterableColumns.map(filterKey => {
               const column = config.columns.find(c => c.key === filterKey)
@@ -532,7 +679,11 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
             <table className="data-table">
               <thead>
                 <tr>
-                  {config.columns.map(col => <th key={col.key} style={{ width: col.width }}>{col.label}</th>)}
+                  {config.columns.map(col => (
+                    <th key={col.key} className={col.key === 'estado' ? 'state-column' : undefined} style={{ width: col.width }}>
+                      {col.label}
+                    </th>
+                  ))}
                   <th>Acciones</th>
                 </tr>
               </thead>
@@ -543,14 +694,36 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                   return (
                   <tr key={rowKey} className={highlightedId === row[config.key] ? 'row-highlight' : undefined}>
                     {config.columns.map(col => (
-                      <td key={col.key} data-label={col.label}>{formatValue(row[col.key], col, row, fkOptions)}</td>
+                      <td key={col.key} data-label={col.label} className={col.key === 'estado' ? 'state-column' : undefined}>
+                        {col.key === 'estado' ? (
+                          <div className="table-state-control">
+                            {formatValue(row[col.key], col, row, fkOptions)}
+                            {canChangeState && config.endpoint !== 'produccion' && !isClienteGeneral
+                              && <Toggle active={Boolean(row.estado)} onChange={() => toggleState(row)} />}
+                          </div>
+                        ) : formatValue(row[col.key], col, row, fkOptions)}
+                      </td>
                     ))}
                     <td data-label="Acciones">
                       <div className="actions">
-                        {canView && <ViewBtn onClick={() => openDetail(row)} />}
-                        {canUpdate && <EditBtn onClick={() => openEdit(row)} />}
-                        {canDelete && !isClienteGeneral && <span className="row-action-delete"><TrashBtn onClick={() => setConfirmDelete(row)} /></span>}
-                        {canChangeState && hasEstado && !isClienteGeneral && <span className="row-action-state"><Toggle active={Boolean(row.estado)} onChange={() => toggleState(row)} /></span>}
+                        {config.endpoint === 'produccion' ? (
+                          <>
+                            {canView && <ViewBtn onClick={() => openDetail(row)} />}
+                            {canUpdate && row.estado === 'En proceso' && <EditBtn onClick={() => openEdit(row)} />}
+                            {canFreeze && row.estado === 'En proceso' && (
+                              <button className="btn-ghost" onClick={() => openProductionFreeze(row)}>Congelar</button>
+                            )}
+                            {canAnular && row.estado === 'En proceso' && (
+                              <button className="btn-ghost" onClick={() => setProductionCancel(row)}>Anular</button>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {canView && <ViewBtn onClick={() => openDetail(row)} />}
+                            {canUpdate && <EditBtn onClick={() => openEdit(row)} />}
+                            {canDelete && !isClienteGeneral && <span className="row-action-delete"><TrashBtn onClick={() => setConfirmDelete(row)} /></span>}
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -579,8 +752,11 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                     value={String(values[field.key] ?? '')}
                     onChange={e => {
                       const val = e.target.value
-                      setValues(prev => ({ ...prev, [field.key]: val }))
-                      setErrors(prev => ({ ...prev, [field.key]: '' }))
+                      const changes = config.endpoint === 'produccion' && field.key === 'id_lote_origen'
+                        ? { [field.key]: val, id_producto_resultado: '' }
+                        : { [field.key]: val }
+                      setValues(prev => ({ ...prev, ...changes }))
+                      setErrors(prev => ({ ...prev, [field.key]: '', ...(field.key === 'id_lote_origen' ? { id_producto_resultado: '' } : {}) }))
                       const dependentFields = config.fields.filter(f => f.dependsOn === field.key)
                       dependentFields.forEach(dep => {
                         setValues(prev => ({ ...prev, [dep.key]: '' }))
@@ -589,9 +765,26 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                     }}
                   >
                     <option value="">Seleccione...</option>
-                    {(field.options ?? fkOptions[field.key] ?? []).map(opt => (
+                    {(field.options ?? fkOptions[field.key] ?? [])
+                      .filter(option => {
+                        if (config.endpoint !== 'produccion') return true
+                        if (field.key === 'id_lote_origen') {
+                          return Boolean(option.data?.estado) && Boolean(option.data?.es_transformable)
+                            && Number(option.data?.cantidad_disponible) > 0
+                            && String(option.data?.fecha_vencimiento) >= localDateString()
+                        }
+                        if (field.key === 'id_producto_resultado') {
+                          const currentSelection = modal === 'edit'
+                            && String(option.value) === String(values.id_producto_resultado ?? '')
+                          return (Boolean(option.data?.estado) || currentSelection)
+                            && (selectedSourceCategoryId === undefined
+                              || Number(option.data?.id_categoria) === Number(selectedSourceCategoryId))
+                        }
+                        return true
+                      })
+                      .map(opt => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
+                      ))}
                   </select>
                   {errors[field.key] && <small className="field-error">{errors[field.key]}</small>}
                 </>
@@ -614,8 +807,9 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                 <>
                   <input
                     className={`input ${errors[field.key] ? 'input-error' : ''}`}
-                    type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text'}
+                    type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : field.type === 'url' ? 'url' : 'text'}
                     maxLength={field.maxLength}
+                    placeholder={field.placeholder}
                     min={field.type === 'number' ? field.min : undefined}
                     max={field.type === 'number' ? field.max : undefined}
                     step={field.type === 'number' ? field.step : undefined}
@@ -629,11 +823,44 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                       setErrors(prev => ({ ...prev, [field.key]: '' }))
                     }}
                   />
+                  {field.type === 'url' && safeImageUrl(values[field.key]) && (
+                    <ProductImage src={values[field.key]} alt={String(values.presentacion ?? 'Vista previa del producto')} className="product-image--preview" />
+                  )}
                   {errors[field.key] && <small className="field-error">{errors[field.key]}</small>}
                 </>
               )}
             </Field>
           ))}
+          {config.endpoint === 'produccion' && (modal === 'new' || modal === 'edit') && (
+            <Field label="Aproximado estimado de salida">
+              <div className="production-estimate" role="status">
+                <strong>
+                  {productionEstimatedBags === null ? '—' : `${productionEstimatedBags.toLocaleString('es-CO')} bolsas`}
+                </strong>
+                <span>
+                  {Number.isFinite(productionNetKg) && productionNetKg >= 0
+                    ? `${productionNetKg.toLocaleString('es-CO', { maximumFractionDigits: 2 })} kg netos`
+                    : 'Verifique los kilos y la merma estimada'}
+                </span>
+                <small>
+                  {selectedOutputProduct
+                    ? `Presentación seleccionada: ${String(fkOptions.id_producto_resultado?.find(option => String(option.value) === String(values.id_producto_resultado))?.label ?? '')}. La merma real se calcula al finalizar.`
+                    : 'Seleccione la presentación congelada para calcular las unidades aproximadas.'}
+                </small>
+              </div>
+            </Field>
+          )}
+          {config.endpoint === 'productos' && (
+            <Field label="Unidad de inventario">
+              <input
+                className="input"
+                value={values.tipo_producto === 'Congelada' ? 'bolsa' : values.tipo_producto === 'Fresca' ? 'kg' : ''}
+                placeholder="Se determina según el tipo de producto"
+                disabled
+              />
+              <small className="muted">Fresa fresca se registra por kg; fresa congelada, por bolsa.</small>
+            </Field>
+          )}
         </div>
         <div className="modal-actions">
           <button className="btn-secondary" onClick={() => setModal('')}>Cancelar</button>
@@ -642,7 +869,7 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
       </Modal>
 
       {/* ── Detail modal ────────────────────────────────────────────────────── */}
-      <Modal open={modal === 'detail'} title={`Detalle de ${config.singular}`} onClose={() => setModal('')} wide={!!config.subResources?.length}>
+      <Modal open={modal === 'detail'} title={`Detalle de ${config.singular}`} onClose={() => setModal('')} wide={config.endpoint === 'produccion' || !!config.subResources?.length}>
         {selected && (
           <>
             <div className="detail-grid">
@@ -653,6 +880,38 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
                 </div>
               ))}
             </div>
+
+            {config.endpoint === 'productos' && (
+              <section className="product-lot-detail">
+                <h3>Lotes asociados</h3>
+                {productLotsLoading ? (
+                  <div className="loading-state" style={{ padding: '12px 0' }}>
+                    <Ic d={P.sync} size={18} style={{ animation: 'spin 1s linear infinite' }} />
+                    <span style={{ marginLeft: 8 }}>Cargando lotes…</span>
+                  </div>
+                ) : productLotsError ? (
+                  <p className="field-error" role="alert">{productLotsError}</p>
+                ) : productLots.length ? (
+                  <div className="card table-scroll">
+                    <table className="data-table">
+                      <thead><tr><th>Número de lote</th><th>Cantidad disponible</th><th>Ubicación</th><th>Vencimiento</th></tr></thead>
+                      <tbody>
+                        {productLots.map(lot => (
+                          <tr key={String(lot.id_lote)}>
+                            <td data-label="Número de lote">{String(lot.numero_lote ?? '—')}</td>
+                            <td data-label="Cantidad disponible">
+                              {Number(lot.cantidad_disponible ?? 0).toLocaleString('es-CO')} {String(selected.unidad_medida ?? '')}
+                            </td>
+                            <td data-label="Ubicación">{String(lot.nombre_ubicacion ?? '—')}</td>
+                            <td data-label="Vencimiento">{formatDate(lot.fecha_vencimiento, false)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : <p className="muted">Este producto no tiene lotes asociados.</p>}
+              </section>
+            )}
 
             {/* Sub-resource tables */}
             {config.subResources?.map(sub => (
@@ -752,9 +1011,74 @@ export function ResourceCrudPage({ config, moduleName }: ResourceCrudPageProps) 
         )}
       </Modal>
 
+      <Modal open={!!productionFreeze} title="Registrar congelado y lote de salida" onClose={() => setProductionFreeze(null)} narrow>
+        {productionFreeze && (
+          <>
+            <p className="muted">
+              Aproximado previo: {Number(productionFreeze.cantidad_estimada_congelada ?? 0).toLocaleString('es-CO')} bolsas.
+              Ingrese las unidades reales obtenidas.
+            </p>
+            <Field label="Bolsas obtenidas">
+              <input
+                className="input"
+                type="number"
+                min={1}
+                step={1}
+                value={freezeValues.unidades_obtenidas}
+                onChange={event => {
+                  setFreezeValues(prev => ({ ...prev, unidades_obtenidas: event.target.value }))
+                  setProductionActionError('')
+                }}
+              />
+            </Field>
+            <Field label="Ubicación del lote congelado">
+              <select
+                className="select"
+                value={freezeValues.id_ubicacion}
+                disabled={freezeLocationsLoading}
+                onChange={event => {
+                  setFreezeValues(prev => ({ ...prev, id_ubicacion: event.target.value }))
+                  setProductionActionError('')
+                }}
+              >
+                <option value="">{freezeLocationsLoading ? 'Cargando ubicaciones…' : 'Seleccione…'}</option>
+                {freezeLocations.map(location => <option key={location.value} value={location.value}>{location.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Vencimiento">
+              <input
+                className="input"
+                type="date"
+                min={localDateString()}
+                value={freezeValues.fecha_vencimiento}
+                onChange={event => {
+                  setFreezeValues(prev => ({ ...prev, fecha_vencimiento: event.target.value }))
+                  setProductionActionError('')
+                }}
+              />
+            </Field>
+            {productionActionError && <p className="field-error" role="alert">{productionActionError}</p>}
+            <div className="modal-actions">
+              <button className="btn-secondary" disabled={productionActionLoading} onClick={() => setProductionFreeze(null)}>Cancelar</button>
+              <button className="btn-primary" disabled={productionActionLoading || freezeLocationsLoading} onClick={finishProduction}>
+                {productionActionLoading ? 'Guardando…' : 'Registrar congelado'}
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
+
       {/* ── Confirm modals ──────────────────────────────────────────────────── */}
       <ConfirmModal open={!!confirmDelete} title={`¿Eliminar ${config.singular}?`} message="Esta acción no se puede deshacer." actionLabel="Eliminar" onCancel={() => setConfirmDelete(null)} onConfirm={() => confirmDelete && deleteResource(confirmDelete)} />
       <ConfirmModal open={!!subConfirmDelete} title={`¿Eliminar ${subConfirmDelete?.sub.singular ?? ''}?`} message="Esta acción no se puede deshacer." actionLabel="Eliminar" onCancel={() => setSubConfirmDelete(null)} onConfirm={handleSubDelete} />
+      <ConfirmModal
+        open={!!productionCancel}
+        title="¿Anular esta orden de producción?"
+        message="Se reintegrarán al lote fresco los kilos reservados para esta orden que aún está en proceso."
+        actionLabel="Anular producción"
+        onCancel={() => setProductionCancel(null)}
+        onConfirm={cancelProduction}
+      />
     </section>
   )
 }

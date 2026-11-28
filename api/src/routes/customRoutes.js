@@ -14,7 +14,7 @@ import {
   freezeProduction,
   updateProduction,
 } from '../controllers/productionController.js'
-import { cancelSale, createSale } from '../controllers/salesController.js'
+import { cancelSale, createSale, updateSale } from '../controllers/salesController.js'
 import { requireAuth } from '../middleware/authMiddleware.js'
 
 export const customRouter = Router()
@@ -29,6 +29,7 @@ customRouter.delete('/roles/:id', deleteRole)
 
 customRouter.get('/productos/:id/lotes', getProductLots)
 customRouter.post('/ventas', createSale)
+customRouter.put('/ventas/:id', updateSale)
 customRouter.post('/ventas/:id/anular', cancelSale)
 customRouter.post('/produccion', createProduction)
 customRouter.put('/produccion/:id', updateProduction)

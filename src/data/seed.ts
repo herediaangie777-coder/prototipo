@@ -33,7 +33,7 @@ export function createDemoSeed(): AppState {
     id_producto: index + 1,
     id_categoria: (index % 4) + 1,
     tipo_producto: (index < 4 ? 'Fresca' : 'Congelada') as 'Fresca' | 'Congelada',
-    presentacion: index < 4 ? 'Granel' : 'Bolsa 1 kg',
+    presentacion: index < 4 ? 'Granel' : 'Bolsa',
     unidad_medida: (index < 4 ? 'kg' : 'bolsa') as 'kg' | 'bolsa',
     peso_unidad_kg: index < 4 ? null : 1,
     precio_compra: [7000, 6500, 6000, 8000, 9500, 9000, 8500, 10500][index],

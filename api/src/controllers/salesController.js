@@ -291,3 +291,220 @@ export async function cancelSale(request, response, next) {
     client.release()
   }
 }
+
+export async function updateSale(request, response, next) {
+  const body = request.body
+  if (!isObject(body) || !Array.isArray(body.lines) || body.lines.length === 0) {
+    return badRequest(response, 'Envíe los datos de venta y al menos una línea de producto.')
+  }
+  if (typeof body.numero_documento !== 'string' || !body.numero_documento
+    || !['Detal', 'Mayorista'].includes(body.tipo_venta)
+    || !isNonNegativeMoney(body.iva) || !isNonNegativeMoney(body.descuento_total)) {
+    return badRequest(response, 'Cliente, tipo de venta, IVA o descuento no válidos.')
+  }
+
+  const quantities = new Map()
+  for (const line of body.lines) {
+    if (!isObject(line) || !positiveInteger(line.id_producto) || !isPositiveMoney(line.cantidad)) {
+      return badRequest(response, 'Cada línea requiere un producto y una cantidad válida de hasta dos decimales.')
+    }
+    const productId = Number(line.id_producto)
+    const combined = roundMoney((quantities.get(productId) ?? 0) + Number(line.cantidad))
+    if (Number(combined.toFixed(2)) !== combined) {
+      return badRequest(response, 'La cantidad total por producto debe usar máximo dos decimales.')
+    }
+    quantities.set(productId, combined)
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const saleResult = await client.query(
+      'SELECT * FROM public.ventas WHERE id_venta = $1 FOR UPDATE',
+      [request.params.id]
+    )
+    if (saleResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      return response.status(404).json({ error: 'Venta no encontrada.' })
+    }
+    if (!saleResult.rows[0].estado) {
+      await client.query('ROLLBACK')
+      return response.status(409).json({ error: 'No se puede editar una venta anulada.' })
+    }
+
+    const customerResult = await client.query(
+      'SELECT numero_documento FROM public.clientes WHERE numero_documento = $1 AND estado',
+      [body.numero_documento]
+    )
+    if (customerResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      return badRequest(response, 'Seleccione un cliente activo.')
+    }
+
+    const productIds = [...quantities.keys()].sort((a, b) => a - b)
+    const productsResult = await client.query(
+      `SELECT id_producto, tipo_producto, unidad_medida, precio_venta_detal, precio_venta_mayorista
+       FROM public.productos
+       WHERE id_producto = ANY($1::int[]) AND estado
+       ORDER BY id_producto
+       FOR SHARE`,
+      [productIds]
+    )
+    const products = new Map(productsResult.rows.map(product => [product.id_producto, product]))
+    if (products.size !== productIds.length) {
+      await client.query('ROLLBACK')
+      return badRequest(response, 'Uno o más productos no están disponibles.')
+    }
+
+    const lines = []
+    let subtotal = 0
+    for (const productId of productIds) {
+      const product = products.get(productId)
+      const quantity = quantities.get(productId)
+      if (product.tipo_producto === 'Congelada' && !Number.isInteger(quantity)) {
+        await client.query('ROLLBACK')
+        return badRequest(response, 'La cantidad de producto congelado debe ser un número entero de bolsas.')
+      }
+      const unitPrice = Number(body.tipo_venta === 'Detal' ? product.precio_venta_detal : product.precio_venta_mayorista)
+      subtotal += quantity * unitPrice
+      lines.push({ product, quantity, unitPrice })
+    }
+
+    subtotal = roundMoney(subtotal)
+    const discount = Number(body.descuento_total)
+    if (discount > subtotal) {
+      await client.query('ROLLBACK')
+      return badRequest(response, 'El descuento no puede superar el subtotal.')
+    }
+    const total = roundMoney(subtotal - discount + Number(body.iva))
+    if (total <= 0) {
+      await client.query('ROLLBACK')
+      return badRequest(response, 'El total de la venta debe ser mayor a cero.')
+    }
+    const paymentError = validatePayments(body.pagos, total)
+    if (paymentError) {
+      await client.query('ROLLBACK')
+      return badRequest(response, paymentError)
+    }
+
+    const oldDetailsResult = await client.query(
+      'SELECT id_lote, cantidad FROM public.detalle_venta WHERE id_venta = $1 ORDER BY id_lote, id_detalle_venta',
+      [request.params.id]
+    )
+    const oldLotIds = [...new Set(oldDetailsResult.rows.map(detail => Number(detail.id_lote)))]
+    const lotsResult = await client.query(
+      `SELECT id_lote, id_producto, id_detalle_compra, id_detalle_produccion,
+              cantidad_disponible, estado, (fecha_vencimiento >= CURRENT_DATE) AS vigente,
+              fecha_vencimiento
+       FROM public.lotes
+       WHERE id_lote = ANY($1::int[]) OR id_producto = ANY($2::int[])
+       ORDER BY id_lote
+       FOR UPDATE`,
+      [oldLotIds, productIds]
+    )
+    const lotBalances = new Map(lotsResult.rows.map(lot => [Number(lot.id_lote), {
+      ...lot,
+      cantidad_disponible: Number(lot.cantidad_disponible),
+      estado: Boolean(lot.estado),
+      vigente: Boolean(lot.vigente),
+    }]))
+    const restoredByLot = new Map()
+    for (const detail of oldDetailsResult.rows) {
+      const lotId = Number(detail.id_lote)
+      restoredByLot.set(lotId, (restoredByLot.get(lotId) ?? 0) + Number(detail.cantidad))
+    }
+    for (const [lotId, quantity] of restoredByLot) {
+      const lot = lotBalances.get(lotId)
+      if (!lot) {
+        await client.query('ROLLBACK')
+        return response.status(409).json({ error: `No se encontró el lote ${lotId} para restaurar la venta.` })
+      }
+      lot.cantidad_disponible = roundMoney(lot.cantidad_disponible + quantity)
+      lot.estado = lot.vigente
+    }
+
+    const allocations = []
+    const touchedLotIds = new Set(restoredByLot.keys())
+    for (const line of lines) {
+      const candidates = [...lotBalances.values()]
+        .filter(lot => Number(lot.id_producto) === line.product.id_producto
+          && lot.estado && lot.vigente && lot.cantidad_disponible > 0
+          && ((line.product.tipo_producto === 'Fresca' && lot.id_detalle_compra !== null)
+            || (line.product.tipo_producto === 'Congelada' && lot.id_detalle_produccion !== null)))
+        .sort((a, b) => String(a.fecha_vencimiento).localeCompare(String(b.fecha_vencimiento))
+          || Number(a.id_lote) - Number(b.id_lote))
+      const available = candidates.reduce((sum, lot) => sum + lot.cantidad_disponible, 0)
+      if (available < line.quantity) {
+        await client.query('ROLLBACK')
+        return badRequest(response, `Stock insuficiente para el producto ${line.product.id_producto}; disponible: ${available}.`)
+      }
+
+      let remaining = line.quantity
+      for (const lot of candidates) {
+        const quantity = Math.min(remaining, lot.cantidad_disponible)
+        if (quantity <= 0) continue
+        lot.cantidad_disponible = roundMoney(lot.cantidad_disponible - quantity)
+        lot.estado = lot.cantidad_disponible > 0
+        touchedLotIds.add(Number(lot.id_lote))
+        allocations.push({
+          id_producto: line.product.id_producto,
+          id_lote: Number(lot.id_lote),
+          cantidad: quantity,
+          unidad_medida: line.product.unidad_medida,
+          precio_unitario: line.unitPrice,
+        })
+        remaining = roundMoney(remaining - quantity)
+        if (remaining <= 0) break
+      }
+    }
+
+    for (const lotId of touchedLotIds) {
+      const lot = lotBalances.get(lotId)
+      await client.query(
+        'UPDATE public.lotes SET cantidad_disponible = $1, estado = $2 WHERE id_lote = $3',
+        [lot.cantidad_disponible, lot.estado, lotId]
+      )
+    }
+
+    await client.query('DELETE FROM public.detalle_venta WHERE id_venta = $1', [request.params.id])
+    await client.query('DELETE FROM public.pagos_venta WHERE id_venta = $1', [request.params.id])
+    const updatedSaleResult = await client.query(
+      `UPDATE public.ventas
+       SET numero_documento = $1, tipo_venta = $2, iva = $3, descuento_total = $4, total_pagar = $5
+       WHERE id_venta = $6
+       RETURNING *`,
+      [body.numero_documento, body.tipo_venta, body.iva, body.descuento_total, total, request.params.id]
+    )
+
+    const details = []
+    for (const allocation of allocations) {
+      const detailResult = await client.query(
+        `INSERT INTO public.detalle_venta
+           (id_venta, id_producto, id_lote, cantidad, unidad_medida, precio_unitario)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [request.params.id, allocation.id_producto, allocation.id_lote, allocation.cantidad, allocation.unidad_medida, allocation.precio_unitario]
+      )
+      details.push(detailResult.rows[0])
+    }
+
+    const payments = []
+    for (const payment of body.pagos) {
+      const paymentResult = await client.query(
+        `INSERT INTO public.pagos_venta (id_venta, metodo_pago, monto_recibido, referencia)
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
+        [request.params.id, payment.metodo_pago, payment.monto, payment.referencia?.trim() || null]
+      )
+      payments.push(paymentResult.rows[0])
+    }
+
+    await client.query('COMMIT')
+    response.status(200).json({ data: { venta: updatedSaleResult.rows[0], detalles: details, pagos: payments } })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    next(error)
+  } finally {
+    client.release()
+  }
+}

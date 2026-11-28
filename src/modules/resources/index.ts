@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { api } from '@/data/services/api'
+import { productoNombre as buildProductName } from '@/data/format'
 
 export type Row = Record<string, unknown>
 
@@ -10,12 +11,14 @@ export type FieldType =
   | 'datetime'
   | 'switch'
   | 'password'
+  | 'url'
   | 'select'
   | 'email'
 
 export interface SelectOption {
   value: string | number
   label: string
+  data?: Row
 }
 
 export interface FieldConfig {
@@ -23,11 +26,13 @@ export interface FieldConfig {
   label: string
   type: FieldType
   required?: boolean
+  requiredOnCreate?: boolean
   maxLength?: number
   options?: SelectOption[]
   fkEndpoint?: string
   fkLabelKey?: string
   fkValueKey?: string
+  fkLabelFormatter?: (row: Row, categories: Row[]) => string
   placeholder?: string
   min?: number
   max?: number
@@ -46,7 +51,7 @@ export interface FieldConfig {
 export interface ColumnConfig {
   key: string
   label: string
-  type?: 'text' | 'number' | 'currency' | 'date' | 'datetime' | 'boolean' | 'badge' | 'estado-produccion'
+  type?: 'text' | 'number' | 'currency' | 'date' | 'datetime' | 'boolean' | 'badge' | 'estado-produccion' | 'image'
   formatter?: (value: unknown, row: Row, fkOptions?: Record<string, Array<{ value: string | number; label: string }>>) => ReactNode
   width?: string
   fkField?: string
@@ -102,15 +107,13 @@ const boolLabel = (v: unknown): string => (v ? 'Activo' : 'Inactivo')
 const idFormatter = (prefix: string) => (v: unknown): string =>
   `${prefix}-${String(v).padStart(4, '0')}`
 
-/** "Fresa Fresca · Calibre 1 · Granel" composite display name */
+/** Includes product type, classification, presentation, pack size and inventory unit. */
 export function productoNombre(row: Row, fkOptions: Record<string, Array<{ value: string | number; label: string }>>): string {
-  const tipo = String(row.tipo_producto ?? '')
-  const catOpts = fkOptions['id_categoria'] ?? []
-  const catMatch = catOpts.find(o => String(o.value) === String(row.id_categoria))
-  const cat = catMatch ? catMatch.label : String(row.id_categoria ?? '')
-  const pres = String(row.presentacion ?? '')
-  if (!tipo && !cat && !pres) return '—'
-  return `Fresa ${tipo} · ${cat} · ${pres}`.replace(/^Fresa\s·/, '·').replace(/\s·\s$/, '')
+  const categories = (fkOptions.id_categoria ?? []).map(option => ({
+    id_categoria: option.value,
+    nombre_categoria: option.label,
+  }))
+  return buildProductName(row, categories)
 }
 
 // ── Resource configs ──────────────────────────────────────────────────────────
@@ -154,7 +157,7 @@ export const usuarioResource: ResourceConfig = {
     { key: 'correo', label: 'Correo', type: 'email', required: true, maxLength: 40, autocomplete: 'off' },
     { key: 'telefono', label: 'Teléfono', type: 'text', maxLength: 15, autocomplete: 'off' },
     { key: 'id_rol', label: 'Rol', type: 'select', required: true, fkEndpoint: 'roles', fkLabelKey: 'nombre_rol', fkValueKey: 'id_rol' },
-    { key: 'contrasenia', label: 'Contraseña', type: 'password', required: true, maxLength: 255, hiddenOnEdit: true, autocomplete: 'new-password' },
+    { key: 'contrasenia', label: 'Contraseña (opcional al editar)', type: 'password', requiredOnCreate: true, maxLength: 20, autocomplete: 'new-password' },
     { key: 'estado', label: 'Estado', type: 'switch', defaultValue: true },
   ],
   detailFields: [
@@ -175,9 +178,9 @@ export const categoriaResource: ResourceConfig = {
   title: 'Categorías',
   singular: 'categoría',
   columns: [
-    { key: 'nombre_categoria', label: 'Categoría', width: '55%' },
-    { key: 'productos_count', label: 'Productos asociados', type: 'number', width: '20%' },
-    { key: 'estado', label: 'Estado', type: 'boolean', width: '140px' },
+    { key: 'nombre_categoria', label: 'Categoría' },
+    { key: 'productos_count', label: 'Productos asociados', type: 'number' },
+    { key: 'estado', label: 'Estado', type: 'boolean' },
   ],
   fields: [
     { key: 'nombre_categoria', label: 'Nombre', type: 'text', required: true, maxLength: 20 },
@@ -210,11 +213,10 @@ export const productoResource: ResourceConfig = {
   title: 'Productos',
   singular: 'producto',
   columns: [
+    { key: 'imagen_url', label: 'Imagen', type: 'image', width: '84px' },
     { key: 'presentacion', label: 'Producto',
-      formatter: (_v, row, options) => `Fresa ${String(row.tipo_producto ?? '')} · ${options?.id_categoria?.find(o => String(o.value) === String(row.id_categoria))?.label ?? row.id_categoria} · ${String(row.presentacion ?? '')}` },
-    { key: 'id_categoria', label: 'Categoría', fkField: 'id_categoria' },
-    { key: 'tipo_producto', label: 'Tipo' },
-    { key: 'unidad_medida', label: 'Unidad' },
+      formatter: (_v, row, options) => productoNombre(row, options ?? {}) },
+    { key: 'precio_compra', label: 'P. Compra', type: 'currency' },
     { key: 'precio_venta_detal', label: 'P. Detal', type: 'currency' },
     { key: 'precio_venta_mayorista', label: 'P. Mayorista', type: 'currency' },
     { key: 'stock_vendible', label: 'Stock vendible', type: 'number' },
@@ -223,10 +225,11 @@ export const productoResource: ResourceConfig = {
   ],
   fields: [
     { key: 'id_categoria', label: 'Categoría', type: 'select', required: true, fkEndpoint: 'categorias', fkLabelKey: 'nombre_categoria', fkValueKey: 'id_categoria' },
+    { key: 'imagen_url', label: 'Imagen del producto (URL)', type: 'url', maxLength: 2048, placeholder: 'https://ejemplo.com/fresa.jpg', sendNullIfEmpty: true },
     { key: 'tipo_producto', label: 'Tipo de producto', type: 'select', required: true, options: [{ value: 'Fresca', label: 'Fresca' }, { value: 'Congelada', label: 'Congelada' }] },
-    { key: 'presentacion', label: 'Presentación', type: 'text', required: true, maxLength: 40 },
+    { key: 'presentacion', label: 'Presentación / empaque', type: 'text', required: true, maxLength: 40, placeholder: 'Granel, Bandeja, Bolsa...' },
     // peso_unidad_kg only shows and is required when tipo_producto === 'Congelada'
-    { key: 'peso_unidad_kg', label: 'Peso por bolsa (kg)', type: 'number', required: true, min: 0.001, step: 0.001, sendNullIfEmpty: true,
+    { key: 'peso_unidad_kg', label: 'Peso por bolsa (kg)', type: 'number', required: true, min: 0.001, step: 0.001, placeholder: '0.5 para 500 g; 1 para 1 kg', sendNullIfEmpty: true,
       showWhen: (values) => String(values.tipo_producto) === 'Congelada' },
     { key: 'precio_compra', label: 'Precio de compra', type: 'number', required: true, min: 0, step: 0.01 },
     { key: 'precio_venta_detal', label: 'Precio venta detal', type: 'number', required: true, min: 0, step: 0.01 },
@@ -409,7 +412,8 @@ export const compraResource: ResourceConfig = {
         { key: 'precio_unitario', label: 'Precio unit.', type: 'currency' },
       ],
       fields: [
-        { key: 'id_producto', label: 'Producto', type: 'select', required: true, fkEndpoint: 'productos', fkLabelKey: 'presentacion', fkValueKey: 'id_producto' },
+        { key: 'id_producto', label: 'Producto', type: 'select', required: true, fkEndpoint: 'productos', fkLabelKey: 'presentacion', fkValueKey: 'id_producto',
+          fkLabelFormatter: (product, categories) => `${buildProductName(product, categories)} · Compra ${cop(Number(product.precio_compra) || 0)} / ${String(product.unidad_medida ?? 'unidad')}` },
         { key: 'cantidad', label: 'Cantidad', type: 'number', required: true, min: 0.01, step: 0.01 },
         { key: 'unidad_medida', label: 'Unidad', type: 'select', required: true, options: [{ value: 'kg', label: 'kg' }, { value: 'bolsa', label: 'bolsa' }], defaultValue: 'kg' },
         { key: 'precio_unitario', label: 'Precio unitario', type: 'number', required: true, min: 0, step: 0.01 },
@@ -484,56 +488,68 @@ export const produccionResource: ResourceConfig = {
     { key: 'id_produccion', label: 'N°', formatter: idFormatter('OP') },
     { key: 'id_usuario', label: 'Usuario', fkField: 'id_usuario' },
     { key: 'id_lote_origen', label: 'Lote origen', fkField: 'id_lote_origen' },
+    { key: 'id_producto_resultado', label: 'Presentación de salida', fkField: 'id_producto_resultado' },
     { key: 'fecha_produccion', label: 'Fecha', type: 'datetime' },
-    { key: 'cantidad_a_procesar', label: 'Cantidad (kg)', type: 'number' },
+    { key: 'cantidad_a_procesar', label: 'A procesar (kg)', type: 'number' },
+    { key: 'merma_estimada', label: 'Merma estimada (kg)', type: 'number' },
+    { key: 'cantidad_estimada_congelada', label: 'Bolsas aprox.', type: 'number' },
+    {
+      key: 'merma',
+      label: 'Merma real (kg)',
+      formatter: value => value == null ? '—' : `${Number(value).toLocaleString('es-CO', { maximumFractionDigits: 3 })} kg`,
+    },
     { key: 'estado', label: 'Estado', type: 'estado-produccion' },
   ],
   fields: [
-    { key: 'id_usuario', label: 'Usuario', type: 'select', required: true, fkEndpoint: 'usuarios', fkLabelKey: 'correo', fkValueKey: 'id_usuario' },
-    { key: 'id_lote_origen', label: 'Lote origen', type: 'select', required: true, fkEndpoint: 'lotes', fkLabelKey: 'numero_lote', fkValueKey: 'id_lote' },
-    { key: 'cantidad_a_procesar', label: 'Cantidad a procesar (kg)', type: 'number', required: true, min: 0.01, step: 0.01 },
-    { key: 'merma', label: 'Merma (kg)', type: 'number', min: 0, step: 0.01 },
-    { key: 'estado', label: 'Estado', type: 'select', required: true, options: [{ value: 'En proceso', label: 'En proceso' }, { value: 'Finalizada', label: 'Finalizada' }, { value: 'Anulada', label: 'Anulada' }], defaultValue: 'En proceso' },
-    { key: 'fecha_finalizacion', label: 'Fecha de finalización', type: 'datetime' },
+    {
+      key: 'id_usuario',
+      label: 'Usuario',
+      type: 'select',
+      fkEndpoint: 'usuarios',
+      fkLabelKey: 'correo',
+      fkValueKey: 'id_usuario',
+      hiddenOnCreate: true,
+      hiddenOnEdit: true,
+    },
+    {
+      key: 'id_lote_origen',
+      label: 'Lote fresco de origen',
+      type: 'select',
+      required: true,
+      fkEndpoint: 'lotes',
+      fkLabelKey: 'numero_lote',
+      fkValueKey: 'id_lote',
+      fkLabelFormatter: row => `${String(row.numero_lote)} · ${Number(row.cantidad_disponible).toLocaleString('es-CO')} kg disponibles · vence ${String(row.fecha_vencimiento)}`,
+      hiddenOnEdit: true,
+    },
+    {
+      key: 'id_producto_resultado',
+      label: 'Presentación congelada de salida',
+      type: 'select',
+      required: true,
+      fkEndpoint: 'productos',
+      fkLabelKey: 'presentacion',
+      fkValueKey: 'id_producto',
+    },
+    { key: 'cantidad_a_procesar', label: 'Kilos a procesar (kg)', type: 'number', required: true, min: 0.01, step: 0.01 },
+    { key: 'merma_estimada', label: 'Merma estimada (kg)', type: 'number', min: 0, step: 0.01, defaultValue: 0 },
     { key: 'observaciones', label: 'Observaciones', type: 'text', maxLength: 200 },
   ],
   detailFields: [
     { key: 'id_usuario', label: 'Usuario', fkField: 'id_usuario' },
     { key: 'id_lote_origen', label: 'Lote origen', fkField: 'id_lote_origen' },
+    { key: 'id_producto_resultado', label: 'Presentación congelada', fkField: 'id_producto_resultado' },
     { key: 'fecha_produccion', label: 'Fecha', type: 'datetime' },
     { key: 'cantidad_a_procesar', label: 'Cantidad a procesar (kg)' },
-    { key: 'merma', label: 'Merma (kg)' },
+    { key: 'merma_estimada', label: 'Merma estimada (kg)' },
+    { key: 'cantidad_estimada_congelada', label: 'Unidades aproximadas' },
+    { key: 'merma', label: 'Merma real (kg)' },
     { key: 'estado', label: 'Estado' },
     { key: 'fecha_finalizacion', label: 'Finalización', type: 'datetime' },
     { key: 'observaciones', label: 'Observaciones' },
   ],
   defaultSort: { column: 'id_produccion', direction: 'desc' },
   filterableColumns: ['id_usuario', 'estado'],
-  subResources: [
-    {
-      key: 'id_detalle_produccion',
-      endpoint: 'detalle_produccion',
-      title: 'Detalle de producción',
-      singular: 'detalle',
-      parentKey: 'id_produccion',
-      columns: [
-        { key: 'id_producto', label: 'Producto', fkField: 'id_producto' },
-        { key: 'cantidad_obtenida', label: 'Cantidad obtenida', type: 'number' },
-        { key: 'unidad_medida', label: 'Unidad' },
-      ],
-      fields: [
-        { key: 'id_producto', label: 'Producto', type: 'select', required: true, fkEndpoint: 'productos', fkLabelKey: 'presentacion', fkValueKey: 'id_producto' },
-        { key: 'cantidad_obtenida', label: 'Cantidad obtenida', type: 'number', required: true, min: 0.01, step: 0.01 },
-        { key: 'unidad_medida', label: 'Unidad', type: 'select', required: true, options: [{ value: 'bolsa', label: 'bolsa' }], defaultValue: 'bolsa' },
-      ],
-      detailFields: [
-        { key: 'id_producto', label: 'Producto', fkField: 'id_producto' },
-        { key: 'cantidad_obtenida', label: 'Cantidad obtenida' },
-        { key: 'unidad_medida', label: 'Unidad' },
-      ],
-      defaultSort: { column: 'id_detalle_produccion', direction: 'desc' },
-    },
-  ],
 }
 
 export const ventaResource: ResourceConfig = {
@@ -595,7 +611,8 @@ export const ventaResource: ResourceConfig = {
         { key: 'precio_unitario', label: 'Precio unit.', type: 'currency' },
       ],
       fields: [
-        { key: 'id_producto', label: 'Producto', type: 'select', required: true, fkEndpoint: 'productos', fkLabelKey: 'presentacion', fkValueKey: 'id_producto' },
+        { key: 'id_producto', label: 'Producto', type: 'select', required: true, fkEndpoint: 'productos', fkLabelKey: 'presentacion', fkValueKey: 'id_producto',
+          fkLabelFormatter: (product, categories) => `${buildProductName(product, categories)} · Detal ${cop(Number(product.precio_venta_detal) || 0)} / ${String(product.unidad_medida ?? 'unidad')} · Mayorista ${cop(Number(product.precio_venta_mayorista) || 0)} / ${String(product.unidad_medida ?? 'unidad')}` },
         { key: 'id_lote', label: 'Lote', type: 'select', required: true, fkEndpoint: 'lotes', fkLabelKey: 'numero_lote', fkValueKey: 'id_lote' },
         { key: 'cantidad', label: 'Cantidad', type: 'number', required: true, min: 0.01, step: 0.01 },
         { key: 'unidad_medida', label: 'Unidad', type: 'select', required: true, options: [{ value: 'kg', label: 'kg' }, { value: 'bolsa', label: 'bolsa' }], defaultValue: 'kg' },

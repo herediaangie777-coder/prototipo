@@ -66,12 +66,12 @@ export function clientHistory(state: AppState, document: string) {
   }))
 }
 export function hasPermission(state: AppState, roleId: number, module: string, privilege: string) {
-  if (roleId === 1) return true
   const permissionId = state.permisos.find(row => row.nombre_permiso === module)?.id_permiso
   const privilegeId = state.privilegios.find(row => row.nombre_privilegio === privilege)?.id_privilegio
-  return permissionId !== undefined && privilegeId !== undefined
-    && state.permisos_privilegios.some(row => row.id_permiso === permissionId && row.id_privilegio === privilegeId)
-    && state.roles_x_permisos.some(row => row.id_rol === roleId && row.id_permiso === permissionId && row.id_privilegio === privilegeId)
+  if (permissionId === undefined || privilegeId === undefined) return false
+  if (!state.permisos_privilegios.some(row => row.id_permiso === permissionId && row.id_privilegio === privilegeId)) return false
+  if (roleId === 1) return true
+  return state.roles_x_permisos.some(row => row.id_rol === roleId && row.id_permiso === permissionId && row.id_privilegio === privilegeId)
 }
 export function saleTypePrice(product: AppState['productos'][number], type: TipoVenta) {
   return type === 'Detal' ? product.precio_venta_detal : product.precio_venta_mayorista

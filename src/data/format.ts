@@ -27,7 +27,19 @@ export function resolveForeignName(rows: Array<Record<string, unknown>>, id: unk
 
 export function productoNombre(row: Record<string, unknown>, categorias: Array<Record<string, unknown>>): string {
   const categoria = resolveForeignName(categorias, row.id_categoria, 'id_categoria', 'nombre_categoria')
-  return `Fresa ${String(row.tipo_producto ?? '')} · ${categoria} · ${String(row.presentacion ?? '')}`
+  const rawPresentation = String(row.presentacion ?? '').trim()
+  const weight = Number(row.peso_unidad_kg)
+  const hasWeight = Number.isFinite(weight) && weight > 0
+  const presentation = hasWeight
+    ? rawPresentation.replace(/\s+\d+(?:[.,]\d+)?\s*(?:kg|g)\s*$/i, '').trim() || rawPresentation
+    : rawPresentation
+  const weightLabel = hasWeight
+    ? weight * 1000 < 1000 && Number.isInteger(weight * 1000)
+      ? `${weight * 1000} g`
+      : `${new Intl.NumberFormat('es-CO', { maximumFractionDigits: 3 }).format(weight)} kg`
+    : ''
+  const details = [presentation, weightLabel, String(row.unidad_medida ?? '')].filter(Boolean).join(' · ')
+  return `Fresa ${String(row.tipo_producto ?? '')} · ${categoria} · ${details}`
 }
 
 export function mostrarPesoBolsa(tipo: unknown): boolean { return String(tipo) === 'Congelada' }

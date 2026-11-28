@@ -9,9 +9,21 @@ function positiveNumber(value) {
   return Number.isFinite(number) && number > 0 && Number(number.toFixed(2)) === number
 }
 
+function nonNegativeNumber(value) {
+  if (value === null || value === '') return false
+  const number = Number(value)
+  return Number.isFinite(number) && number >= 0 && Number(number.toFixed(2)) === number
+}
+
 function positiveInteger(value) {
   const number = Number(value)
   return Number.isSafeInteger(number) && number > 0
+}
+
+function estimatedUnits(quantityKg, lossKg, packWeightKg) {
+  const netMilliKg = Math.round((Number(quantityKg) - Number(lossKg)) * 1000)
+  const packMilliKg = Math.round(Number(packWeightKg) * 1000)
+  return packMilliKg > 0 ? Math.floor(netMilliKg / packMilliKg) : 0
 }
 
 function isIsoDate(value) {
@@ -30,13 +42,23 @@ async function rollback(client) {
 }
 
 export async function createProduction(request, response, next) {
-  const { id_lote_origen, cantidad_a_procesar, observaciones } = request.body ?? {}
-  if (!hasOnlyAllowedKeys(request.body, ['id_usuario', 'id_lote_origen', 'cantidad_a_procesar', 'observaciones'])) {
+  const {
+    id_lote_origen,
+    id_producto_resultado,
+    cantidad_a_procesar,
+    merma_estimada = 0,
+    observaciones,
+  } = request.body ?? {}
+  if (!hasOnlyAllowedKeys(request.body, [
+    'id_usuario', 'id_lote_origen', 'id_producto_resultado', 'cantidad_a_procesar', 'merma_estimada', 'observaciones',
+  ])) {
     return badRequest(response, 'El cuerpo contiene campos no permitidos.')
   }
   const idUsuario = request.user?.id ?? (Number(request.body?.id_usuario) || 1)
-  if (!positiveInteger(idUsuario) || !positiveInteger(id_lote_origen) || !positiveNumber(cantidad_a_procesar)) {
-    return badRequest(response, 'Usuario, lote y cantidad a procesar son obligatorios; la cantidad debe usar máximo dos decimales.')
+  if (!positiveInteger(idUsuario) || !positiveInteger(id_lote_origen) || !positiveInteger(id_producto_resultado)
+    || !positiveNumber(cantidad_a_procesar) || !nonNegativeNumber(merma_estimada)
+    || Number(merma_estimada) > Number(cantidad_a_procesar)) {
+    return badRequest(response, 'Lote, presentación congelada, cantidad y merma estimada son inválidos; las cantidades deben usar máximo dos decimales.')
   }
   if (observaciones !== undefined && (typeof observaciones !== 'string' || observaciones.length > 200)) {
     return badRequest(response, 'Las observaciones deben ser texto de hasta 200 caracteres.')
@@ -83,30 +105,29 @@ export async function createProduction(request, response, next) {
     const productResult = await client.query(
       `SELECT id_producto, peso_unidad_kg
        FROM public.productos
-       WHERE id_categoria = $1 AND tipo_producto = 'Congelada' AND estado
-       ORDER BY id_producto
-       LIMIT 1`,
-      [source.id_categoria]
+       WHERE id_producto = $1 AND id_categoria = $2 AND tipo_producto = 'Congelada' AND estado`,
+      [id_producto_resultado, source.id_categoria]
     )
     if (productResult.rowCount === 0) {
       await rollback(client)
-      return badRequest(response, 'No hay un producto congelado activo para este calibre.')
+      return badRequest(response, 'Seleccione una presentación congelada activa del mismo calibre que el lote de origen.')
     }
 
     const outputProduct = productResult.rows[0]
-    const estimatedBags = Math.floor(Number(cantidad_a_procesar) / Number(outputProduct.peso_unidad_kg))
+    const estimatedBags = estimatedUnits(cantidad_a_procesar, merma_estimada, outputProduct.peso_unidad_kg)
     if (estimatedBags < 1) {
       await rollback(client)
-      return badRequest(response, 'La cantidad a procesar no alcanza para estimar una bolsa del producto congelado.')
+      return badRequest(response, 'Los kilos netos (cantidad menos merma estimada) no alcanzan para una unidad de esta presentación.')
     }
 
     const productionResult = await client.query(
       `INSERT INTO public.produccion
          (id_usuario, id_lote_origen, id_producto_resultado, cantidad_a_procesar,
-          cantidad_estimada_congelada, observaciones)
-       VALUES ($1, $2, $3, $4, $5, $6)
+          cantidad_estimada_congelada, merma_estimada, observaciones)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [idUsuario, id_lote_origen, outputProduct.id_producto, cantidad_a_procesar, estimatedBags, observaciones?.trim() || null]
+      [idUsuario, id_lote_origen, outputProduct.id_producto, cantidad_a_procesar, estimatedBags,
+        merma_estimada, observaciones?.trim() || null]
     )
     const remaining = Number(source.cantidad_disponible) - Number(cantidad_a_procesar)
     await client.query(
@@ -124,15 +145,22 @@ export async function createProduction(request, response, next) {
 }
 
 export async function updateProduction(request, response, next) {
-  const { cantidad_a_procesar, observaciones } = request.body ?? {}
-  if (!hasOnlyAllowedKeys(request.body, ['cantidad_a_procesar', 'observaciones'])) {
+  const { cantidad_a_procesar, id_producto_resultado, merma_estimada, observaciones } = request.body ?? {}
+  if (!hasOnlyAllowedKeys(request.body, ['cantidad_a_procesar', 'id_producto_resultado', 'merma_estimada', 'observaciones'])) {
     return badRequest(response, 'El cuerpo contiene campos no permitidos.')
   }
-  if (cantidad_a_procesar === undefined && observaciones === undefined) {
-    return badRequest(response, 'Debe enviar la cantidad o las observaciones para actualizar.')
+  if (cantidad_a_procesar === undefined && id_producto_resultado === undefined
+    && merma_estimada === undefined && observaciones === undefined) {
+    return badRequest(response, 'Debe enviar la presentación, cantidad, merma estimada o las observaciones para actualizar.')
   }
   if (cantidad_a_procesar !== undefined && !positiveNumber(cantidad_a_procesar)) {
     return badRequest(response, 'La cantidad debe ser mayor a cero y usar máximo dos decimales.')
+  }
+  if (id_producto_resultado !== undefined && !positiveInteger(id_producto_resultado)) {
+    return badRequest(response, 'Seleccione una presentación congelada válida.')
+  }
+  if (merma_estimada !== undefined && !nonNegativeNumber(merma_estimada)) {
+    return badRequest(response, 'La merma estimada debe ser mayor o igual a cero y usar máximo dos decimales.')
   }
   if (observaciones !== undefined && (typeof observaciones !== 'string' || observaciones.length > 200)) {
     return badRequest(response, 'Las observaciones deben ser texto de hasta 200 caracteres.')
@@ -142,9 +170,10 @@ export async function updateProduction(request, response, next) {
   try {
     await client.query('BEGIN')
     const orderResult = await client.query(
-      `SELECT pr.*, p.peso_unidad_kg
+      `SELECT pr.*, origen.id_categoria
        FROM public.produccion pr
-       JOIN public.productos p ON p.id_producto = pr.id_producto_resultado
+       JOIN public.lotes lote_origen ON lote_origen.id_lote = pr.id_lote_origen
+       JOIN public.productos origen ON origen.id_producto = lote_origen.id_producto
        WHERE pr.id_produccion = $1
        FOR UPDATE OF pr`,
       [request.params.id]
@@ -162,10 +191,31 @@ export async function updateProduction(request, response, next) {
     const nextQuantity = cantidad_a_procesar === undefined
       ? Number(order.cantidad_a_procesar)
       : Number(cantidad_a_procesar)
-    const estimatedBags = Math.floor(nextQuantity / Number(order.peso_unidad_kg))
+    const nextLoss = merma_estimada === undefined ? Number(order.merma_estimada ?? 0) : Number(merma_estimada)
+    const nextProductId = id_producto_resultado === undefined
+      ? Number(order.id_producto_resultado)
+      : Number(id_producto_resultado)
+    if (nextLoss > nextQuantity) {
+      await rollback(client)
+      return badRequest(response, 'La merma estimada no puede superar los kilos a procesar.')
+    }
+
+    const productResult = await client.query(
+      `SELECT id_producto, peso_unidad_kg, estado
+       FROM public.productos
+       WHERE id_producto = $1 AND id_categoria = $2 AND tipo_producto = 'Congelada'`,
+      [nextProductId, order.id_categoria]
+    )
+    if (productResult.rowCount === 0
+      || (!productResult.rows[0].estado && nextProductId !== Number(order.id_producto_resultado))) {
+      await rollback(client)
+      return badRequest(response, 'Seleccione una presentación congelada activa del mismo calibre que el lote de origen.')
+    }
+    const outputProduct = productResult.rows[0]
+    const estimatedBags = estimatedUnits(nextQuantity, nextLoss, outputProduct.peso_unidad_kg)
     if (estimatedBags < 1) {
       await rollback(client)
-      return badRequest(response, 'La cantidad a procesar no alcanza para estimar una bolsa del producto congelado.')
+      return badRequest(response, 'Los kilos netos (cantidad menos merma estimada) no alcanzan para una unidad de esta presentación.')
     }
 
     if (cantidad_a_procesar !== undefined) {
@@ -187,11 +237,12 @@ export async function updateProduction(request, response, next) {
 
     const result = await client.query(
       `UPDATE public.produccion
-       SET cantidad_a_procesar = $1, cantidad_estimada_congelada = $2,
-           observaciones = $3
-       WHERE id_produccion = $4
+       SET id_producto_resultado = $1, cantidad_a_procesar = $2, cantidad_estimada_congelada = $3,
+           merma_estimada = $4, observaciones = $5
+       WHERE id_produccion = $6
        RETURNING *`,
-      [nextQuantity, estimatedBags, observaciones === undefined ? order.observaciones : (observaciones.trim() || null), request.params.id]
+      [nextProductId, nextQuantity, estimatedBags, nextLoss,
+        observaciones === undefined ? order.observaciones : (observaciones.trim() || null), request.params.id]
     )
     await client.query('COMMIT')
     response.status(200).json({ data: result.rows[0] })
@@ -216,7 +267,7 @@ export async function freezeProduction(request, response, next) {
   try {
     await client.query('BEGIN')
     const orderResult = await client.query(
-      `SELECT pr.*, p.peso_unidad_kg
+      `SELECT pr.*, p.peso_unidad_kg, p.tipo_producto
        FROM public.produccion pr
        JOIN public.productos p ON p.id_producto = pr.id_producto_resultado
        WHERE pr.id_produccion = $1
@@ -233,8 +284,9 @@ export async function freezeProduction(request, response, next) {
       return badRequest(response, 'Solo se pueden congelar órdenes que estén en proceso.')
     }
 
-    const outputKg = Number(unidades_obtenidas) * Number(order.peso_unidad_kg)
-    if (outputKg > Number(order.cantidad_a_procesar)) {
+    const outputMilliKg = Number(unidades_obtenidas) * Math.round(Number(order.peso_unidad_kg) * 1000)
+    const processMilliKg = Math.round(Number(order.cantidad_a_procesar) * 1000)
+    if (order.tipo_producto !== 'Congelada' || outputMilliKg > processMilliKg) {
       await rollback(client)
       return badRequest(response, 'Los kilos resultantes no pueden superar los kilos de fresa fresca procesados.')
     }
@@ -263,7 +315,7 @@ export async function freezeProduction(request, response, next) {
        SET merma = $1, estado = 'Finalizada', fecha_finalizacion = LOCALTIMESTAMP
        WHERE id_produccion = $2
        RETURNING *`,
-      [Number((Number(order.cantidad_a_procesar) - outputKg).toFixed(2)), request.params.id]
+      [(processMilliKg - outputMilliKg) / 1000, request.params.id]
     )
     await client.query('COMMIT')
     response.status(200).json({ data: { produccion: updatedOrder.rows[0], lote: lotResult.rows[0] } })
